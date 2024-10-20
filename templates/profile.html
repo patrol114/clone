@@ -323,10 +323,10 @@ function startTraining(profileId) {
         updateProgressBar(progressBarId, 0);
     });
 }
+    
 // Poprawione zarządzanie postępem treningu (status, epoki, czas trwania)
-function startSSE(profileId, modal = false) {
+function startSSE(profileId) {
     const source = new EventSource(`/training_status/${profileId}`);
-
     source.onmessage = function (event) {
         try {
             const data = JSON.parse(event.data);
@@ -371,10 +371,6 @@ function startSSE(profileId, modal = false) {
     source.onerror = function (error) {
         console.error("Błąd SSE: ", error);
         source.close();
-        if (modal) {
-            disablePauseResumeButton();
-        }
-        alert("Wystąpił błąd podczas monitorowania postępu treningu.");
     };
 }
 
@@ -390,6 +386,7 @@ function updateModalContent(data) {
     updateElement('modal-cer', metrics.CER !== undefined ? `${metrics.CER.toFixed(2)}%` : '0.00%');
     updateElement('modal-loss', loss !== undefined ? `Strata: ${loss.toFixed(4)}` : 'Strata: 0.00');
 }
+
 
     // Audio file preview
     const fileInputs = document.querySelectorAll('input[type="file"]');
