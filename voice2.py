@@ -2292,7 +2292,7 @@ def train_asr_model_route(profile_id):
         training_semaphore.acquire()
         try:
             # Aktualizacja statusu na "£adowanie modelu"
-            update_training_progress(profile_id, status="£adowanie modelu...", progress=5)
+            update_training_progress(profile_id, status="Ładowanie modelu...", progress=5)
 
             # Wywo³anie funkcji treningowej
             train_asr_on_voice_profile(profile, app.config, all_audio_files, all_transcriptions, num_epochs=10, batch_size=8, num_workers=2)
@@ -2364,7 +2364,8 @@ def training_status(profile_id):
 
 # ------------------- Helper Functions for Training Progress -------------------
 
-def update_training_progress(profile_id, status=None, progress=None, current_epoch=None, total_epochs=None, time_elapsed=None, metrics=None):
+# Helper function to update training progress
+def update_training_progress(profile_id, status=None, progress=None, current_epoch=None, total_epochs=None, time_elapsed=None, metrics=None, loss=None):
     with asr_model_lock:
         if profile_id not in training_progress:
             training_progress[profile_id] = {
@@ -2374,7 +2375,8 @@ def update_training_progress(profile_id, status=None, progress=None, current_epo
                 "total_epochs": total_epochs or 10,
                 "time_elapsed": time_elapsed or 0,
                 "is_paused": training_progress.get(profile_id, {}).get("is_paused", False),
-                "metrics": metrics or {}
+                "metrics": metrics or {},
+                "loss": loss or 0.0
             }
         else:
             if status:
@@ -2389,7 +2391,9 @@ def update_training_progress(profile_id, status=None, progress=None, current_epo
                 training_progress[profile_id]["time_elapsed"] = time_elapsed
             if metrics:
                 training_progress[profile_id]["metrics"].update(metrics)
-
+            if loss is not None:
+                training_progress[profile_id]["loss"] = loss
+                
 @app.route('/pause_training/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def pause_training(profile_id):
