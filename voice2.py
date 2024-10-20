@@ -1287,7 +1287,9 @@ def generate_speech(text: str, profile: VoiceProfile, emotion: str = 'neutral', 
             raise ValueError("Wytrenowany model ASR nie jest dostêpny dla tego profilu.")
 
         # cie¿ka do zapisanego modelu
-        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], asr_model_entry.model_file)
+        model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
+        model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
+                
         if not os.path.exists(model_path):
             logger.error(f"Plik modelu ASR nie zosta³ znaleziony: {model_path}")
             raise FileNotFoundError(f"Plik modelu ASR nie zosta³ znaleziony: {model_path}")
