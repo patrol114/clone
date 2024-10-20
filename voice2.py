@@ -1521,9 +1521,9 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
         # Zapisanie modelu po treningu
         with app.app_context():  # Zapewnij kontekst aplikacji przy operacjach na bazie danych
             try:
-                model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
-                model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
-                
+                model_filename = f"CKPT+asr_model_profile_{profile.id}_{int(time.time())}.pt"
+                model_path = os.path.join(config['ASR_MODELS_FOLDER'], model_filename)
+                torch.save(model.state_dict(), model_path)
                 # Użycie Checkpointer do zapisu modelu
                 asr_brain.checkpointer.save_checkpoint(name=model_filename)  # Zapisz checkpoint z nazwą
                 
