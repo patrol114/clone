@@ -2148,6 +2148,7 @@ def upload_voice():
         # Sprawdzenie, czy plik jest w żądaniu
         if 'file' not in request.files:
             message = "Brak pliku w żądaniu."
+            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2159,6 +2160,7 @@ def upload_voice():
 
         if file.filename == '':
             message = "Nie wybrano pliku."
+            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2166,6 +2168,7 @@ def upload_voice():
 
         if not allowed_file(file.filename):
             message = "Nieobsługiwany format pliku audio."
+            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2179,11 +2182,12 @@ def upload_voice():
             if filename.rsplit('.', 1)[1].lower() != 'wav':
                 audio = AudioSegment.from_file(file)
                 audio.export(upload_path, format='wav')
+                logger.info(f"Plik audio przekonwertowany do WAV: {upload_path}")
             else:
                 file.save(upload_path)
-            logger.info(f"Plik audio został przesłany: {upload_path}")
+                logger.info(f"Plik audio zapisany: {upload_path}")
         except Exception as e:
-            logger.error(f"Błąd podczas zapisywania lub konwertowania pliku: {e}")
+            logger.error(f"Błąd podczas zapisywania lub konwertowania pliku: {e}", exc_info=True)
             message = "Nie udało się zapisać lub przekonwertować pliku."
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 500
@@ -2214,6 +2218,7 @@ def upload_voice():
             )
             db.session.add(voice_profile)
             db.session.commit()
+            logger.info(f"Profil głosowy utworzony: ID {voice_profile.id}")
 
             message = "Profil głosowy został utworzony, przetworzony i transkrybowany."
             if request.is_json:
@@ -2223,7 +2228,7 @@ def upload_voice():
 
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Błąd podczas przetwarzania audio: {e}")
+            logger.error(f"Błąd podczas przetwarzania audio: {e}", exc_info=True)
             message = "Wystąpił błąd podczas przetwarzania audio."
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 500
@@ -2232,7 +2237,7 @@ def upload_voice():
 
     # GET request
     return render_template('upload_voice.html')
-
+    
 @app.route('/profile')
 @jwt_required()
 def profile():
@@ -2602,19 +2607,21 @@ def analyze_audio(profile_id):
     user_id = get_jwt_identity()
     profile = VoiceProfile.query.filter_by(id=profile_id, user_id=user_id).first()
     if not profile:
-        flash("Profil g³osowy nie zosta³ znaleziony.", 'danger')
+        flash("Profil głosowy nie został znaleziony.", 'danger')
+        logger.warning(f"Profil głosowy ID {profile_id} nie znaleziony dla użytkownika ID {user_id}.")
         return redirect(url_for('profile'))
 
     audio_path = os.path.join(app.config['PROCESSED_FOLDER'], profile.audio_file)
     if not os.path.exists(audio_path):
-        flash("Plik audio nie zosta³ znaleziony.", 'danger')
+        flash("Plik audio nie został znaleziony.", 'danger')
+        logger.error(f"Plik audio {audio_path} nie istnieje.")
         return redirect(url_for('profile'))
 
     try:
-        # Pobierz instancjê ASRBrain, jeli potrzebna w dalszej czêci
+        # Pobierz instancję ASRBrain, jeżeli potrzebna w dalszej części
         asr_brain = get_asr_brain()
 
-        # Poprawione wywo³anie funkcji bez przekazywania asr_brain jako argumentu n_mels
+        # Poprawione wywołanie funkcji bez przekazywania asr_brain jako argumentu n_mels
         mel_tensor, processing_info, save_status = process_audio_to_dataset(
             audio_path=audio_path,
             n_mels=80,
@@ -2626,7 +2633,8 @@ def analyze_audio(profile_id):
         )
 
         if mel_tensor is None:
-            flash("Wyst¹pi³ b³¹d podczas analizy audio.", 'danger')
+            flash("Wystąpił błąd podczas analizy audio.", 'danger')
+            logger.error(f"process_audio_to_dataset zwrócił None dla pliku {audio_path}.")
             return redirect(url_for('profile'))
 
         suitability = evaluate_audio_suitability(processing_info)
@@ -2634,9 +2642,10 @@ def analyze_audio(profile_id):
         audio_signal = audio_signal_function(audio_path)
         if audio_signal:
             processing_info['audio_signal'] = audio_signal
+            logger.info(f"Sygnał audio załadowany poprawnie dla pliku: {audio_path}")
         else:
             processing_info['audio_signal'] = []
-            logger.warning(f"Sygna³ audio nie zosta³ poprawnie za³adowany dla pliku: {audio_path}")
+            logger.warning(f"Sygnał audio nie został poprawnie załadowany dla pliku: {audio_path}")
 
         return render_template('audio_analysis.html',
                                profile=profile,
@@ -2647,7 +2656,7 @@ def analyze_audio(profile_id):
                                transcription=profile.transcription)
     except Exception as e:
         logger.error(f"Error during audio analysis: {e}", exc_info=True)
-        flash(f"Wyst¹pi³ b³¹d podczas analizy audio: {str(e)}", 'danger')
+        flash(f"Wystąpił błąd podczas analizy audio: {str(e)}", 'danger')
         return redirect(url_for('profile'))
 
 
