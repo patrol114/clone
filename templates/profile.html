@@ -323,36 +323,26 @@ function startTraining(profileId) {
         updateProgressBar(progressBarId, 0);
     });
 }
-
-// Funkcja do monitorowania postępu treningu za pomocą SSE
+// Poprawione zarządzanie postępem treningu (status, epoki, czas trwania)
 function startSSE(profileId, modal = false) {
     const source = new EventSource(`/training_status/${profileId}`);
 
     source.onmessage = function (event) {
         try {
             const data = JSON.parse(event.data);
-            const progress = data.progress;
-            const status = data.status;
-            const currentEpoch = data.current_epoch;
-            const totalEpochs = data.total_epochs;
-            const timeElapsed = data.time_elapsed;
-            const isPaused = data.is_paused;
-            const metrics = data.metrics || {};
-            const loss = data.loss !== undefined ? data.loss.toFixed(4) : '0.00'; // Pobranie loss, jeśli jest dostępny
+            const { progress, status, current_epoch, total_epochs, time_elapsed, is_paused, metrics = {}, loss } = data;
 
-            // Aktualizacja globalnego obiektu postępu treningu
+            // Aktualizacja globalnego obiektu
             trainingProgress[profileId] = data;
 
-            console.log(`Profile ${profileId} - Status: ${status}, Progress: ${progress}%, Epoch: ${currentEpoch}/${totalEpochs}, Time Elapsed: ${timeElapsed}s, Loss: ${loss}`);
-
-            // Aktualizacja paska postępu w tabeli
+            // Aktualizacja widoku dla listy profilów
             updateProgressBar(`progress-bar-${profileId}`, progress);
             updateStatus(`status-${profileId}`, statusBadge(status));
-            updateElement(`time-elapsed-${profileId}`, `Czas: ${timeElapsed}s`);
-            updateElement(`loss-${profileId}`, `Strata: ${loss}`); // Aktualizacja loss
-            updateElement(`epoch-${profileId}`, `Epoka: ${currentEpoch} z ${totalEpochs}`);
+            updateElement(`time-elapsed-${profileId}`, `Czas: ${time_elapsed}s`);
+            updateElement(`epoch-${profileId}`, `Epoka: ${current_epoch} z ${total_epochs}`);
+            updateElement(`loss-${profileId}`, `Strata: ${loss.toFixed(4)}`);
 
-            // Aktualizacja metryk w tabeli (jeśli są dostępne)
+            // Aktualizacja metryk (jeśli są dostępne)
             if (metrics.WER !== undefined) {
                 updateElement(`wer-${profileId}`, `WER: ${metrics.WER.toFixed(2)}%`);
             }
@@ -360,20 +350,13 @@ function startSSE(profileId, modal = false) {
                 updateElement(`cer-${profileId}`, `CER: ${metrics.CER.toFixed(2)}%`);
             }
 
-            // Aktualizacja paska postępu i informacji w modalu, jeśli jest otwarty
+            // Aktualizacja widoku modala
             if (modal) {
-                updateElement('modal-status', status);
-                updateElement('modal-progress', `${progress}%`);
-                updateProgressBar('modal-progress-bar', progress);
-                updateElement('modal-epoch', `Epoka: ${currentEpoch} z ${totalEpochs}`);
-                updateElement('modal-time-elapsed', `${timeElapsed}s`);
-                updateElement('modal-wer', metrics.WER !== undefined ? `${metrics.WER.toFixed(2)}%` : '0.00%');
-                updateElement('modal-cer', metrics.CER !== undefined ? `${metrics.CER.toFixed(2)}%` : '0.00%');
-                updateElement('modal-loss', `Strata: ${loss}`); // Dodanie loss do modalu
-                handlePauseResumeButton(profileId, isPaused);
+                updateModalContent(data);
+                handlePauseResumeButton(profileId, is_paused);
             }
 
-            // Zakończenie po osiągnięciu 100% lub wystąpieniu błędu
+            // Zakończenie SSE, gdy trening się zakończy
             if (progress >= 100 || status.startsWith('Błąd')) {
                 source.close();
                 if (modal) {
@@ -393,6 +376,19 @@ function startSSE(profileId, modal = false) {
         }
         alert("Wystąpił błąd podczas monitorowania postępu treningu.");
     };
+}
+
+function updateModalContent(data) {
+    const { status, progress, current_epoch, total_epochs, time_elapsed, metrics = {}, loss } = data;
+
+    updateElement('modal-status', statusBadge(status));
+    updateElement('modal-progress', `${progress}%`);
+    updateProgressBar('modal-progress-bar', progress);
+    updateElement('modal-epoch', `Epoka: ${current_epoch} z ${total_epochs}`);
+    updateElement('modal-time-elapsed', `${time_elapsed}s`);
+    updateElement('modal-wer', metrics.WER !== undefined ? `${metrics.WER.toFixed(2)}%` : '0.00%');
+    updateElement('modal-cer', metrics.CER !== undefined ? `${metrics.CER.toFixed(2)}%` : '0.00%');
+    updateElement('modal-loss', loss !== undefined ? `Strata: ${loss.toFixed(4)}` : 'Strata: 0.00');
 }
 
     // Audio file preview
