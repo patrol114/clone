@@ -56,7 +56,7 @@ from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2CTCTokenizer
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 # U¿ywamy klas z transformers zamiast z SpeechBrain
-from speechbrain.inference import EncoderDecoderASR, Tacotron2, HIFIGAN
+from speechbrain.inference import EncoderDecoderASR
 from speechbrain.utils.dynamic_chunk_training import DynChunkTrainConfig
 from speechbrain.dataio.batch import PaddedBatch
 from torch.amp import autocast  # Updated import
@@ -86,14 +86,14 @@ def get_asr_brain():
             if not model or not processor:
                 logger.critical("Nie udało się załadować modelu ASR.")
                 raise RuntimeError("Nie udało się załadować modelu ASR.")
-            
+
             # Dodaj inicjalizację Checkpointera
             checkpointer = Checkpointer(
                 checkpoints_dir=app.config['ASR_MODELS_FOLDER'],  # Ustaw ścieżkę do zapisu modeli
                 recoverables={"model": model, "optimizer": torch.optim.AdamW(model.parameters(), lr=0.001)}  # Dodanie modelu i optymalizatora
 
             )
-            
+
             asr_brain_instance = ASRBrain(
                 modules={"model": model},
                 opt_class=lambda params: torch.optim.AdamW(params, lr=0.001),
@@ -118,7 +118,7 @@ def get_asr_brain():
             )
             logger.info("ASRBrain Singleton został zainicjalizowany.")
         return asr_brain_instance
-        
+
 # ------------------- Application Configuration -------------------
 
 app = Flask(__name__)
@@ -576,7 +576,7 @@ class ASRBrain(sb.Brain):
         self.checkpointer = checkpointer
         if self.checkpointer is None:
             logger.error("Checkpointer nie został prawidłowo zainicjalizowany.")
-        
+
         self.wer_metric = ErrorRateStats()
         self.cer_metric = ErrorRateStats(split_tokens=True)
         self.configure_optimizers()
@@ -632,6 +632,62 @@ class ASRBrain(sb.Brain):
         except pynvml.NVMLError as e:
             logger.warning(f"Nie uda³o siê zainicjalizowaæ pynvml: {e}")
             self.handle = None
+
+
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path: str, run_opts: dict):
+        """
+        Ładuje model ASR z pliku checkpoint.
+
+        Args:
+            checkpoint_path (str): Ścieżka do pliku checkpoint.
+            run_opts (dict): Opcje uruchomienia, np. urządzenie (CPU/GPU).
+
+        Returns:
+            ASRBrain: Załadowana instancja ASRBrain.
+        """
+        try:
+            # Załaduj stan modelu
+            state_dict = torch.load(checkpoint_path, map_location=run_opts["device"])
+
+            # Inicjalizacja ASRBrain z odpowiednimi modułami, optymalizatorem i hiperparametrami
+            model, processor, device = load_asr_model()  # Upewnij się, że ta funkcja działa poprawnie
+            model.to(device)
+
+            checkpointer = Checkpointer(
+                checkpoints_dir=os.path.dirname(checkpoint_path),
+                recoverables={"model": model, "optimizer": torch.optim.AdamW(model.parameters(), lr=0.001)}
+            )
+
+            asr_brain = cls(
+                modules={"model": model},
+                opt_class=lambda params: torch.optim.AdamW(params, lr=0.001),
+                hparams={
+                    "compute_cost": sb.nnet.losses.ctc_loss,
+                    "processor": processor,
+                    "sample_rate": 16000,
+                    "target_sampling_rate": 16000,
+                    "use_augmentation": True,
+                    "convert_to_mono": "average",
+                    "noise_reduction": True,
+                    "normalize_audio": True,
+                    "blank_index": 0,
+                    "max_epochs": 10,
+                    "downsample_factor": 320
+                },
+                run_opts=run_opts,
+                checkpointer=checkpointer
+            )
+
+            # Załaduj stan modelu
+            asr_brain.modules['model'].load_state_dict(state_dict)
+
+            logger.info(f"Model ASR został załadowany z {checkpoint_path} na urządzeniu {run_opts['device']}.")
+            return asr_brain
+
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania checkpointa ASR: {e}", exc_info=True)
+            return None
 
     def monitor_memory_usage(self):
         try:
@@ -799,7 +855,7 @@ class ASRBrain(sb.Brain):
                 epoch_pbar.close()
 
             logger.info("Trenowanie modelu zakończone.")
-        
+
         except Exception as e:
             logger.error(f"Błąd podczas trenowania modelu: {e}", exc_info=True)
             raise
@@ -972,7 +1028,7 @@ class ASRBrain(sb.Brain):
             avg_loss = stage_loss["loss"]
         else:
             avg_loss = stage_loss  # Jeśli stage_loss jest floatem, użyj go bezpośrednio
-    
+
         if stage == sb.Stage.TRAIN:
             logger.info(f"Epoka: {epoch} | Strata: {avg_loss:.4f}")
         else:
@@ -980,7 +1036,7 @@ class ASRBrain(sb.Brain):
                 wer = self.wer_metric.summarize("WER")
                 cer = self.cer_metric.summarize("CER")
                 logger.info(f"Zakończenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: {wer:.2f}% | CER: {cer:.2f}%")
-    
+
                 # Zapisz checkpoint tylko jeśli CER się poprawia
                 current_cer = cer
                 best_cer = getattr(self, 'best_cer', float('inf'))
@@ -1240,7 +1296,7 @@ def strip_silence(audio_segment, silence_thresh=-60.0, min_silence_len=500, keep
     except Exception as e:
         logger.error(f"Error stripping silence: {e}")
         raise
-    
+
 def process_audio(upload_path: str, processed_path: str,
                   trim_silence: bool = True,
                   augment: bool = False,
@@ -1281,53 +1337,6 @@ def process_audio(upload_path: str, processed_path: str,
             return processed_path
     except Exception as e:
         logger.error(f"Błąd podczas przetwarzania pliku audio: {e}", exc_info=True)
-        raise
-
-def generate_speech(text: str, profile: VoiceProfile, emotion: str = 'neutral', intonation: float = 1.0) -> str:
-    try:
-        # Pobranie wpisu ASRModel z bazy danych
-        asr_model_entry = ASRModel.query.filter_by(voice_profile_id=profile.id).first()
-        if not asr_model_entry:
-            logger.error("Nie znaleziono wytrenowanego modelu ASR dla tego profilu.")
-            raise ValueError("Wytrenowany model ASR nie jest dostêpny dla tego profilu.")
-
-        # cie¿ka do zapisanego modelu
-        model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
-        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], model_filename)
-                
-        if not os.path.exists(model_path):
-            logger.error(f"Plik modelu ASR nie zosta³ znaleziony: {model_path}")
-            raise FileNotFoundError(f"Plik modelu ASR nie zosta³ znaleziony: {model_path}")
-
-        # Sprawdzenie w cache
-        with asr_model_cache_lock:
-            if model_path in asr_model_cache:
-                loaded_asr_brain = asr_model_cache[model_path]
-                logger.info(f"Za³adowany model ASR z cache: {model_path}")
-            else:
-                loaded_asr_brain = ASRBrain.load_from_checkpoint(checkpoint_path=model_path, run_opts={"device": "cuda" if torch.cuda.is_available() else "cpu"})
-                asr_model_cache[model_path] = loaded_asr_brain
-                logger.info(f"Wytrenowany model ASR za³adowany z {model_path} i dodany do cache")
-
-        # Przyk³ad u¿ycia oryginalnych modeli TTS (Tacotron2 i HIFIGAN)
-        if not Tacotron2 or not HIFIGAN:
-            logger.error("Modele TTS nie zosta³y za³adowane.")
-            raise ValueError("Modele TTS s¹ niedostêpne.")
-
-        # Mo¿esz tutaj dodaæ logikê integracji ASR z TTS, np. personalizacja g³osu
-        mel_output, mel_length, alignment = Tacotron2.encode_text(text, emotion=emotion, intonation=intonation)
-        waveforms = HIFIGAN.decode_batch(mel_output)
-        audio_data = waveforms.squeeze().cpu().numpy()
-
-        output_filename = f"generated_{uuid.uuid4().hex}.wav"
-        generated_path = os.path.join(app.config['GENERATED_FOLDER'], output_filename)
-        sf.write(generated_path, audio_data, 22050)
-
-        logger.info(f"Mowa zosta³a wygenerowana: {generated_path}")
-        return output_filename
-
-    except Exception as e:
-        logger.error(f"B³¹d podczas generowania mowy: {e}")
         raise
 
 def save_transcription_result(transcription: str, save_path: str):
@@ -1504,11 +1513,15 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
         # Save the trained model
         with app.app_context():
             try:
-                model_filename = f"CKPT+asr_model_profile_{profile.id}_{int(time.time())}.pt"
-                model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
+                model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
+                model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], model_filename)
+                if not os.path.exists(model_path):
+                    logger.error(f"Plik modelu ASR nie został znaleziony: {model_path}")
+                    raise FileNotFoundError(f"Plik modelu ASR nie został znaleziony: {model_path}")
+
                 torch.save(asr_brain_instance.modules['model'].state_dict(), model_path)
                 asr_brain_instance.checkpointer.save_checkpoint(name=model_filename)  # Zapisz checkpoint
-                
+
                 logger.info(f"Trenowany model ASR zapisany jako {model_path}")
 
                 # Add entry to the database for ASRModel
@@ -1533,7 +1546,7 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
         logger.error(f"Error during ASR training for profile {profile.name}: {e}", exc_info=True)
         raise RuntimeError(f"Training failed: {str(e)}")
 
-    
+
 def evaluate_audio_suitability(processing_info,
                                min_duration_sec=5.0,
                                max_duration_sec=400.0,
@@ -2061,6 +2074,134 @@ def evaluate_metrics(model: ASRBrain, valid_data: DynamicItemDataset, profile_id
         logger.error(f"Error during metrics evaluation for profile {profile_id}: {e}", exc_info=True)
         raise e
 
+def prepare_input(text: str, emotion: str = 'neutral', intonation: float = 1.0) -> torch.Tensor:
+    """
+    Przygotowuje dane wejściowe dla modelu ASR na podstawie tekstu i opcjonalnych parametrów emocji oraz intonacji.
+
+    Args:
+        text (str): Tekst, który ma zostać przekonwertowany na mowę.
+        emotion (str): Opcjonalny parametr określający emocję w generowanej mowie.
+        intonation (float): Opcjonalny parametr określający intonację mowy.
+
+    Returns:
+        torch.Tensor: Tensor reprezentujący dane wejściowe do modelu ASR.
+    """
+    try:
+        # Tokenizacja tekstu - zamiana tekstu na sekwencję tokenów (np. za pomocą istniejącego tokenizer'a)
+        tokenized_text = tokenizer.encode(text, return_tensors="pt")
+
+        # Dodanie parametrów emocji i intonacji (jeśli model ich wymaga)
+        # Można dodać dodatkowe informacje o emocji lub intonacji do tokenów, jeśli model to obsługuje
+        if hasattr(tokenizer, 'add_emotion'):
+            tokenized_text = tokenizer.add_emotion(tokenized_text, emotion)
+
+        if hasattr(tokenizer, 'add_intonation'):
+            tokenized_text = tokenizer.add_intonation(tokenized_text, intonation)
+
+        return tokenized_text
+
+    except Exception as e:
+        logger.error(f"Błąd podczas przygotowania danych wejściowych: {e}")
+        raise
+
+def generate_speech(text: str, profile: VoiceProfile, emotion: str = 'neutral', intonation: float = 1.0) -> str:
+    try:
+        # Wczytanie modelu ASR z bazy danych
+        asr_model_entry = ASRModel.query.filter_by(voice_profile_id=profile.id).first()
+        if not asr_model_entry:
+            logger.error("Nie znaleziono wytrenowanego modelu ASR dla tego profilu.")
+            raise ValueError("Wytrenowany model ASR nie jest dostępny dla tego profilu.")
+
+        # Ścieżka do modelu
+        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], asr_model_entry.model_file)
+        if not os.path.exists(model_path):
+            logger.error(f"Plik modelu ASR nie został znaleziony: {model_path}")
+            raise FileNotFoundError(f"Plik modelu ASR nie został znaleziony: {model_path}")
+
+        # Wczytaj model z cache lub załaduj, jeśli jeszcze nie istnieje w cache
+        with asr_model_cache_lock:
+            if model_path in asr_model_cache:
+                loaded_asr_model = asr_model_cache[model_path]
+                logger.info(f"Załadowano model ASR z cache: {model_path}")
+            else:
+                loaded_asr_model = torch.load(model_path, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+                asr_model_cache[model_path] = loaded_asr_model
+                logger.info(f"Wytrenowany model ASR załadowany z {model_path} i dodany do cache")
+
+        # Przetwarzanie tekstu przez model ASR
+        loaded_asr_model.eval()
+        input_data = prepare_input(text, emotion, intonation)  # Przygotowanie danych wejściowych
+
+        with torch.no_grad():
+            predictions = loaded_asr_model(input_data)
+
+        # Konwersja predykcji na dane audio
+        audio_data = convert_predictions_to_audio(predictions)
+
+        # Zapis wygenerowanego pliku audio
+        output_filename = f"generated_{uuid.uuid4().hex}.wav"
+        generated_path = os.path.join(app.config['GENERATED_FOLDER'], output_filename)
+        sf.write(generated_path, audio_data, 22050)
+
+        logger.info(f"Mowa została wygenerowana: {generated_path}")
+        return output_filename
+
+    except Exception as e:
+        logger.error(f"Nieoczekiwany błąd podczas generowania mowy: {e}", exc_info=True)
+        raise
+
+def convert_predictions_to_audio(predictions: torch.Tensor) -> np.ndarray:
+    """
+    Konwertuje predykcje modelu ASR (np. mel-spectrogram) na fale dźwiękowe.
+
+    Args:
+        predictions (torch.Tensor): Wyniki modelu ASR w formie np. mel-spectrogramu.
+
+    Returns:
+        np.ndarray: Dane audio jako fala dźwiękowa gotowa do zapisu.
+    """
+    try:
+        if predictions.dim() == 3:  # Przykład dla mel-spectrogramów
+            predictions = predictions.squeeze(0)
+
+        # Konwersja z mel-spectrogramu na fale dźwiękową (np. metodą inverse mel)
+        audio_waveform = mel_spectrogram_to_waveform(predictions)
+
+        return audio_waveform
+
+    except Exception as e:
+        logger.error(f"Błąd podczas konwersji predykcji na dane audio: {e}")
+        raise
+
+async def save_audio_to_file(audio_data: np.ndarray, sample_rate: int = 22050) -> str:
+    """
+    Zapisuje dane audio do pliku w formacie .wav.
+
+    Args:
+        audio_data (np.ndarray): Wygenerowane dane audio (fala dźwiękowa).
+        sample_rate (int): Częstotliwość próbkowania (domyślnie 22050 Hz).
+
+    Returns:
+        str: Ścieżka do zapisanego pliku audio.
+    """
+    try:
+        # Tworzenie unikalnej nazwy pliku .wav
+        output_filename = f"generated_{uuid.uuid4().hex}.wav"
+        save_path = os.path.join(app.config['GENERATED_FOLDER'], output_filename)
+
+        # Zapis pliku audio w formacie .wav
+        await asyncio.to_thread(sf.write, save_path, audio_data, sample_rate)
+
+        logger.info(f"Plik audio został zapisany: {save_path}")
+        return save_path
+    except Exception as e:
+        logger.error(f"Błąd podczas zapisywania pliku audio: {e}")
+        raise
+
+
+
+
+
 # ------------------- API Routes -------------------
 
 @app.route('/')
@@ -2148,7 +2289,6 @@ def upload_voice():
         # Sprawdzenie, czy plik jest w żądaniu
         if 'file' not in request.files:
             message = "Brak pliku w żądaniu."
-            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2160,7 +2300,6 @@ def upload_voice():
 
         if file.filename == '':
             message = "Nie wybrano pliku."
-            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2168,7 +2307,6 @@ def upload_voice():
 
         if not allowed_file(file.filename):
             message = "Nieobsługiwany format pliku audio."
-            logger.warning(message)
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 400
             flash(message, 'danger')
@@ -2182,12 +2320,11 @@ def upload_voice():
             if filename.rsplit('.', 1)[1].lower() != 'wav':
                 audio = AudioSegment.from_file(file)
                 audio.export(upload_path, format='wav')
-                logger.info(f"Plik audio przekonwertowany do WAV: {upload_path}")
             else:
                 file.save(upload_path)
-                logger.info(f"Plik audio zapisany: {upload_path}")
+            logger.info(f"Plik audio został przesłany: {upload_path}")
         except Exception as e:
-            logger.error(f"Błąd podczas zapisywania lub konwertowania pliku: {e}", exc_info=True)
+            logger.error(f"Błąd podczas zapisywania lub konwertowania pliku: {e}")
             message = "Nie udało się zapisać lub przekonwertować pliku."
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 500
@@ -2218,7 +2355,6 @@ def upload_voice():
             )
             db.session.add(voice_profile)
             db.session.commit()
-            logger.info(f"Profil głosowy utworzony: ID {voice_profile.id}")
 
             message = "Profil głosowy został utworzony, przetworzony i transkrybowany."
             if request.is_json:
@@ -2228,7 +2364,7 @@ def upload_voice():
 
         except Exception as e:
             db.session.rollback()
-            logger.error(f"Błąd podczas przetwarzania audio: {e}", exc_info=True)
+            logger.error(f"Błąd podczas przetwarzania audio: {e}")
             message = "Wystąpił błąd podczas przetwarzania audio."
             if request.is_json:
                 return jsonify({"success": False, "message": message}), 500
@@ -2237,7 +2373,7 @@ def upload_voice():
 
     # GET request
     return render_template('upload_voice.html')
-    
+
 @app.route('/profile')
 @jwt_required()
 def profile():
@@ -2253,7 +2389,7 @@ def profile():
         })
 
     return render_template('profile.html', profiles=profiles_with_training_status)
-    
+
 @app.route('/train_asr_model/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def train_asr_model_route(profile_id):
@@ -2406,7 +2542,7 @@ def update_training_progress(profile_id, status=None, progress=None, current_epo
                 training_progress[profile_id]["metrics"].update(metrics)
             if loss is not None:
                 training_progress[profile_id]["loss"] = loss
-                
+
 @app.route('/pause_training/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def pause_training(profile_id):
@@ -2443,53 +2579,61 @@ def resume_training(profile_id):
 
 @app.route('/tts', methods=['GET', 'POST'])
 @jwt_required()
-def tts():
+async def tts():
     user_id = get_jwt_identity()
     profiles = VoiceProfile.query.filter_by(user_id=user_id).all()
 
     if request.method == 'POST':
-        text = request.form.get('text', '').strip()
-        voice_id = request.form.get('voice_id')
-        emotion = request.form.get('emotion', 'neutral')
         try:
-            intonation = float(request.form.get('intonation', 1.0))
-        except ValueError:
-            intonation = 1.0  # Wartość domyślna, jeśli nie uda się skonwertować
-        
-        if not text:
-            flash("Nie podano tekstu do syntezy.", 'danger')
-            return redirect(request.url)
+            text = request.form.get('text', '').strip()
+            voice_id = request.form.get('voice_id')
+            emotion = request.form.get('emotion', 'neutral')
+            try:
+                intonation = float(request.form.get('intonation', 1.0))
+            except ValueError:
+                intonation = 1.0  # Domyślna wartość, jeśli konwersja się nie powiedzie
 
-        if not voice_id:
-            flash("Nie wybrano profilu głosowego.", 'danger')
-            return redirect(request.url)
+            if not text:
+                flash("Nie podano tekstu do syntezy.", 'danger')
+                return redirect(request.url)
 
-        profile = VoiceProfile.query.filter_by(id=voice_id, user_id=user_id).first()
-        if not profile:
-            flash("Profil głosowy nie został znaleziony.", 'danger')
-            return redirect(request.url)
+            if not voice_id:
+                flash("Nie wybrano profilu głosowego.", 'danger')
+                return redirect(request.url)
 
-        # Sprawdzenie, czy asr_model istnieje
-        if not profile.asr_model or not profile.asr_model.model_file:
-            flash("Nie znaleziono przypisanego modelu ASR do profilu głosowego.", 'danger')
-            return redirect(request.url)
+            profile = VoiceProfile.query.filter_by(id=voice_id, user_id=user_id).first()
+            if not profile:
+                flash("Profil głosowy nie został znaleziony.", 'danger')
+                return redirect(request.url)
 
-        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], profile.asr_model.model_file)
+            # Sprawdzenie, czy profil ma przypisany plik modelu
+            if not profile.asr_model or not profile.asr_model.model_file:
+                logger.warning(f"Profil ID {voice_id} nie ma przypisanego modelu ASR.")
+                flash("Nie znaleziono przypisanego modelu ASR do profilu głosowego.", 'danger')
+                return redirect(request.url)
 
-        if not os.path.exists(model_path):
-            flash(f"Błąd: Plik modelu ASR nie został znaleziony: {model_path}", 'danger')
-            return redirect(request.url)
+            # Poprawione odwołanie do model_file
+            model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], profile.asr_model.model_file)
 
-        try:
-            output_filename = generate_speech(text, profile, emotion, intonation)
+            if not os.path.exists(model_path):
+                logger.error(f"Błąd: Plik modelu ASR nie został znaleziony: {model_path}")
+                flash("Błąd: Plik modelu ASR nie został znaleziony.", 'danger')
+                return redirect(request.url)
+
+            # Generowanie mowy
+            output_filename = await asyncio.to_thread(generate_speech, text, profile, emotion, intonation)
             flash("Mowa została wygenerowana i jest dostępna do pobrania.", 'success')
             return send_from_directory(app.config['GENERATED_FOLDER'], output_filename, as_attachment=True)
+
         except Exception as e:
+            logger.error(f"Błąd podczas generowania mowy: {e}", exc_info=True)
             flash(f"Błąd podczas generowania mowy: {e}", 'danger')
             return redirect(request.url)
 
+    # GET request - wyświetlenie formularza
     return render_template('tts.html', profiles=profiles)
-    
+
+
 @app.route('/play_audio/<filename>')
 @jwt_required()
 def play_audio(filename: str):
@@ -2607,21 +2751,19 @@ def analyze_audio(profile_id):
     user_id = get_jwt_identity()
     profile = VoiceProfile.query.filter_by(id=profile_id, user_id=user_id).first()
     if not profile:
-        flash("Profil głosowy nie został znaleziony.", 'danger')
-        logger.warning(f"Profil głosowy ID {profile_id} nie znaleziony dla użytkownika ID {user_id}.")
+        flash("Profil g³osowy nie zosta³ znaleziony.", 'danger')
         return redirect(url_for('profile'))
 
     audio_path = os.path.join(app.config['PROCESSED_FOLDER'], profile.audio_file)
     if not os.path.exists(audio_path):
-        flash("Plik audio nie został znaleziony.", 'danger')
-        logger.error(f"Plik audio {audio_path} nie istnieje.")
+        flash("Plik audio nie zosta³ znaleziony.", 'danger')
         return redirect(url_for('profile'))
 
     try:
-        # Pobierz instancję ASRBrain, jeżeli potrzebna w dalszej części
+        # Pobierz instancjê ASRBrain, jeli potrzebna w dalszej czêci
         asr_brain = get_asr_brain()
 
-        # Poprawione wywołanie funkcji bez przekazywania asr_brain jako argumentu n_mels
+        # Poprawione wywo³anie funkcji bez przekazywania asr_brain jako argumentu n_mels
         mel_tensor, processing_info, save_status = process_audio_to_dataset(
             audio_path=audio_path,
             n_mels=80,
@@ -2633,8 +2775,7 @@ def analyze_audio(profile_id):
         )
 
         if mel_tensor is None:
-            flash("Wystąpił błąd podczas analizy audio.", 'danger')
-            logger.error(f"process_audio_to_dataset zwrócił None dla pliku {audio_path}.")
+            flash("Wyst¹pi³ b³¹d podczas analizy audio.", 'danger')
             return redirect(url_for('profile'))
 
         suitability = evaluate_audio_suitability(processing_info)
@@ -2642,10 +2783,9 @@ def analyze_audio(profile_id):
         audio_signal = audio_signal_function(audio_path)
         if audio_signal:
             processing_info['audio_signal'] = audio_signal
-            logger.info(f"Sygnał audio załadowany poprawnie dla pliku: {audio_path}")
         else:
             processing_info['audio_signal'] = []
-            logger.warning(f"Sygnał audio nie został poprawnie załadowany dla pliku: {audio_path}")
+            logger.warning(f"Sygna³ audio nie zosta³ poprawnie za³adowany dla pliku: {audio_path}")
 
         return render_template('audio_analysis.html',
                                profile=profile,
@@ -2656,7 +2796,7 @@ def analyze_audio(profile_id):
                                transcription=profile.transcription)
     except Exception as e:
         logger.error(f"Error during audio analysis: {e}", exc_info=True)
-        flash(f"Wystąpił błąd podczas analizy audio: {str(e)}", 'danger')
+        flash(f"Wyst¹pi³ b³¹d podczas analizy audio: {str(e)}", 'danger')
         return redirect(url_for('profile'))
 
 
