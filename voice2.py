@@ -113,7 +113,7 @@ def get_asr_brain():
                     "device": device.type,
                     "precision": "bf16" if device.type == "cpu" else "fp16"
                 },
-                checkpointer=checkpointer  # Dodanie Checkpointera do ASRBrain
+                #checkpointer=checkpointer  # Dodanie Checkpointera do ASRBrain
             )
             logger.info("ASRBrain Singleton został zainicjalizowany.")
         return asr_brain_instance
@@ -572,7 +572,10 @@ class ASRBrain(sb.Brain):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.modules['model'].to(self.device)
         logger.info(f"ASRBrain urz¹dzenie: {self.device} (Typ: {type(self.device)})")
-
+        self.checkpointer = checkpointer
+        if self.checkpointer is None:
+            logger.error("Checkpointer nie został prawidłowo zainicjalizowany.")
+        
         self.wer_metric = ErrorRateStats()
         self.cer_metric = ErrorRateStats(split_tokens=True)
         self.configure_optimizers()
@@ -755,6 +758,51 @@ class ASRBrain(sb.Brain):
             logger.error(f"B³¹d podczas konfigurowania optymalizatora: {e}", exc_info=True)
             raise
 
+    def fit(self, epoch_counter, train_set, valid_set=None, progressbar=True, train_loader_kwargs={}, valid_loader_kwargs={}):
+        logger.info("Rozpoczęcie trenowania modelu.")
+        try:
+            train_dataloader = sb.dataio.dataloader.make_dataloader(train_set, **train_loader_kwargs)
+            total_steps = len(train_dataloader)
+            epoch_pbar = tqdm(total=len(epoch_counter), desc="Epoki treningowe", unit="epoch") if progressbar else None
+
+            for epoch in epoch_counter:
+                logger.info(f"Rozpoczęcie epoki {epoch}")
+                epoch_loss = 0.0
+                batch_pbar = tqdm(total=total_steps, desc=f"Batch epoka {epoch}", unit="batch") if progressbar else None
+
+                for batch in train_dataloader:
+                    if batch is None:
+                        logger.warning("Otrzymano pusty batch. Pomijanie.")
+                        continue
+                    loss = self.train_step(batch)
+                    epoch_loss += loss.item()
+                    if batch_pbar:
+                        batch_pbar.update(1)
+
+                if batch_pbar:
+                    batch_pbar.close()
+
+                avg_loss = epoch_loss / total_steps
+                logger.info(f"Epoka {epoch} zakończona. Średnia strata: {avg_loss:.4f}")
+
+                # Zapisz model po każdej epoce
+                if self.checkpointer is not None:
+                    if epoch % SAVE_INTERVAL == 0:
+                        logger.info(f"Zapisywanie modelu po epoce {epoch}.")
+                        self.checkpointer.save_checkpoint()
+
+                if epoch_pbar:
+                    epoch_pbar.update(1)
+
+            if epoch_pbar:
+                epoch_pbar.close()
+
+            logger.info("Trenowanie modelu zakończone.")
+        
+        except Exception as e:
+            logger.error(f"Błąd podczas trenowania modelu: {e}", exc_info=True)
+            raise
+
     def train_step(self, batch):
         optimizer = self.optimizer
         optimizer.zero_grad()
@@ -764,7 +812,7 @@ class ASRBrain(sb.Brain):
             precision = self.run_opts.get("precision", "fp16")
             dtype = torch.float16 if precision == "fp16" else torch.float32
 
-            # Zmiana dtype dla batch inputs na odpowiedni¹ precyzjê
+            # Zmiana dtype dla batch inputs na odpowiednią precyzję
             batch['inputs'] = batch['inputs'].to(self.device, dtype=dtype, non_blocking=True)
 
             # Przeprowadzanie operacji forward w trybie autocast dla mieszanej precyzji
@@ -785,96 +833,8 @@ class ASRBrain(sb.Brain):
 
             return loss
         except Exception as e:
-            logger.error(f"B³¹d podczas train_step: {e}", exc_info=True)
+            logger.error(f"Błąd podczas train_step: {e}", exc_info=True)
             raise
-
-
-    def fit(self, epoch_counter, train_set, valid_set=None, progressbar=True, train_loader_kwargs={}, valid_loader_kwargs={}):
-        logger.info("Rozpoczêcie trenowania modelu.")
-        try:
-            # Tworzymy DataLoader dla zestawu treningowego
-            train_dataloader = sb.dataio.dataloader.make_dataloader(train_set, **train_loader_kwargs)
-            total_steps = len(train_dataloader)
-            epoch_pbar = tqdm(total=len(epoch_counter), desc="Epoki treningowe", unit="epoch") if progressbar else None
-
-            for epoch in epoch_counter:
-                logger.info(f"Rozpoczêcie epoki {epoch}")
-                epoch_loss = 0.0
-                batch_pbar = tqdm(total=total_steps, desc=f"Batch epoka {epoch}", unit="batch") if progressbar else None
-
-                for batch in train_dataloader:
-                    if batch is None:
-                        logger.warning("Otrzymano pusty batch. Pomijanie.")
-                        continue
-                    loss = self.train_step(batch)
-                    epoch_loss += loss.item()
-                    if batch_pbar:
-                        batch_pbar.update(1)
-
-                if batch_pbar:
-                    batch_pbar.close()
-
-                avg_loss = epoch_loss / total_steps
-                logger.info(f"Epoka {epoch} zakoñczona. rednia strata: {avg_loss:.4f}")
-
-                # Aktualizacja statusu treningu (przyk³ad)
-                update_training_progress(
-                    profile_id=self.current_profile_id,  # Zak³adam, ¿e masz taki atrybut
-                    status=f"Epoka {epoch} zakoñczona.",
-                    progress=int((epoch / self.hparams.max_epochs) * 100),
-                    current_epoch=epoch,
-                    metrics={"avg_loss": avg_loss}
-                )
-
-                if epoch_pbar:
-                    epoch_pbar.update(1)
-
-            if epoch_pbar:
-                epoch_pbar.close()
-
-            logger.info("Trenowanie modelu zakoñczone.")
-
-        except RuntimeError as e:
-            if "CUDA out of memory" in str(e):
-                logger.error("B³¹d CUDA: Brak pamiêci. Zmniejsz batch_size i spróbuj ponownie.")
-            else:
-                logger.error(f"RuntimeError podczas trenowania: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"B³¹d podczas trenowania modelu: {e}", exc_info=True)
-
-    def reduce_noise(self, wavs):
-        """
-        Redukuje szumy w tensorach audio za pomoc¹ wieloprocesowoci.
-
-        Args:
-            wavs (torch.Tensor): Tensor audio o kszta³cie [batch_size, channels, samples].
-
-        Returns:
-            torch.Tensor: Tensor audio po redukcji szumów.
-        """
-        try:
-            wavs_np = wavs.squeeze(1).cpu().numpy()
-            sample_rate = self.hparams.sample_rate
-
-            # Przygotowanie argumentów dla ka¿dego procesu
-            args = [(wavs_np[i], i, sample_rate) for i in range(wavs_np.shape[0])]
-
-            # Ograniczenie liczby procesów do mniejszej wartoci, np. 4
-            max_workers = min(4, cpu_count())
-            with Pool(processes=max_workers) as pool:
-                results = pool.map(reduce_noise_sample, args)
-
-            # Przypisanie przetworzonych próbek do wavs_np
-            for idx, reduced_sample in results:
-                wavs_np[idx, :] = reduced_sample
-
-            # Konwersja przetworzonego numpy array z powrotem do tensorów PyTorch
-            wavs_reduced = torch.from_numpy(wavs_np).unsqueeze(1).to(wavs.device)
-            return wavs_reduced
-
-        except Exception as e:
-            logger.error(f"B³¹d podczas redukcji szumów: {e}", exc_info=True)
-            return wavs
 
     def adjust_batch_size_based_on_lengths(self, input_lengths, max_memory_usage=14000):
         """
@@ -1010,21 +970,29 @@ class ASRBrain(sb.Brain):
         if isinstance(stage_loss, dict):
             avg_loss = stage_loss["loss"]
         else:
-            avg_loss = stage_loss  # If stage_loss is a float, just use it directly
-
+            avg_loss = stage_loss  # Jeśli stage_loss jest floatem, użyj go bezpośrednio
+    
         if stage == sb.Stage.TRAIN:
             logger.info(f"Epoka: {epoch} | Strata: {avg_loss:.4f}")
         else:
             try:
                 wer = self.wer_metric.summarize("WER")
                 cer = self.cer_metric.summarize("CER")
-                logger.info(f"Zakoñczenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: {wer:.2f}% | CER: {cer:.2f}%")
+                logger.info(f"Zakończenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: {wer:.2f}% | CER: {cer:.2f}%")
+    
+                # Zapisz checkpoint tylko jeśli CER się poprawia
+                current_cer = cer
+                best_cer = getattr(self, 'best_cer', float('inf'))
+                if current_cer < best_cer:
+                    logger.info(f"Poprawa CER z {best_cer:.2f}% na {current_cer:.2f}%. Zapisuję checkpoint.")
+                    self.best_cer = current_cer
+                    self.checkpointer.save_checkpoint(f"best_epoch_{epoch}")
             except ZeroDivisionError:
-                logger.error("ZeroDivisionError podczas obliczania WER/CER: Brak ocenionych zdañ.")
-                logger.info(f"Zakoñczenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: N/A | CER: N/A")
+                logger.error("ZeroDivisionError podczas obliczania WER/CER: Brak ocenionych zdań.")
+                logger.info(f"Zakończenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: N/A | CER: N/A")
             except Exception as e:
-                logger.error(f"B³¹d podczas obliczania metryk: {e}", exc_info=True)
-                logger.info(f"Zakoñczenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: N/A | CER: N/A")
+                logger.error(f"Błąd podczas obliczania metryk: {e}", exc_info=True)
+                logger.info(f"Zakończenie etapu: {stage}, Strata: {avg_loss:.4f} | WER: N/A | CER: N/A")
 
     @staticmethod
     def normalize_audio(wavs, target_rms_db=None):
