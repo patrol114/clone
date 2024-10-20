@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}Twoje Profile Głosowe{% endblock %}
+{% block title %}Twoje Profile G³osowe{% endblock %}
 
 {% block content %}
 <div class="container animate-in">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Twoje Profile Głosowe</h2>
+        <h2>Twoje Profile G³osowe</h2>
         <a href="{{ url_for('upload_voice') }}" class="btn btn-primary">
             <i class="bi bi-upload me-2"></i> Dodaj Nowy Profil
         </a>
@@ -25,7 +25,7 @@
                     <div class="row">
                         <div class="col-md-4">
                             <p><strong>Data Utworzenia:</strong> {{ item.profile.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</p>
-                            <p><strong>Częstotliwość:</strong> {{ item.profile.sample_rate or 'N/A' }} Hz</p>
+                            <p><strong>Czêstotliwoæ:</strong> {{ item.profile.sample_rate or 'N/A' }} Hz</p>
                             <p><strong>Liczba Próbek:</strong> {{ item.profile.num_samples or 'N/A' }}</p>
                             <p><strong>RMS (dB):</strong> {{ item.profile.rms_db or 'N/A' }} dB</p>
                             <p><strong>ZCR:</strong> {{ item.profile.zcr or 'N/A' }}</p>
@@ -44,7 +44,7 @@
                             <div class="mb-3">
                                 <audio id="audio-{{ item.profile.id }}" controls class="w-100">
                                     <source src="{{ url_for('serve_processed_audio', filename=item.profile.audio_file) }}" type="audio/mpeg">
-                                    Twoja przeglądarka nie obsługuje elementu audio.
+                                    Twoja przegl¹darka nie obs³uguje elementu audio.
                                 </audio>
                             </div>
                             <div class="mb-3">
@@ -62,7 +62,7 @@
                                 </a>
                                 <form action="{{ url_for('delete_profile', profile_id=item.profile.id) }}" method="POST" class="d-inline me-2 mb-2">
                                     <button type="submit" class="btn btn-danger btn-sm delete-profile-btn">
-                                        <i class="bi bi-trash-fill"></i> Usuń
+                                        <i class="bi bi-trash-fill"></i> Usuñ
                                     </button>
                                 </form>
                                 <button type="button" class="btn btn-success btn-sm start-training-btn me-2 mb-2" data-profile-id="{{ item.profile.id }}">
@@ -85,25 +85,25 @@
     {% else %}
     <div class="card animate-in">
         <div class="card-body text-center">
-            <h5 class="card-title">Brak Profili Głosowych</h5>
-            <p class="card-text">Nie masz jeszcze żadnych profili głosowych. Dodaj nowy profil, aby rozpocząć.</p>
+            <h5 class="card-title">Brak Profili G³osowych</h5>
+            <p class="card-text">Nie masz jeszcze ¿adnych profili g³osowych. Dodaj nowy profil, aby rozpocz¹æ.</p>
             <a href="{{ url_for('upload_voice') }}" class="btn btn-primary">Dodaj Profil</a>
         </div>
     </div>
     {% endif %}
 </div>
 
-<!-- Modal dla szczegółów treningu -->
+<!-- Modal dla szczegó³ów treningu -->
 <div class="modal fade" id="trainingModal" tabindex="-1" aria-labelledby="trainingModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h1 class="modal-title fs-5" id="trainingModalLabel">Szczegóły Treningu</h1>
+        <h1 class="modal-title fs-5" id="trainingModalLabel">Szczegó³y Treningu</h1>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <p><strong>Status:</strong> <span id="modal-status">N/A</span></p>
-        <p><strong>Postęp:</strong> <span id="modal-progress">0%</span></p>
+        <p><strong>Postêp:</strong> <span id="modal-progress">0%</span></p>
         <p><strong>Epoka:</strong> <span id="modal-epoch">0 z 10</span></p>
         <p><strong>Czas Trwania:</strong> <span id="modal-time-elapsed">0s</span></p>
         <div class="progress mb-3">
@@ -126,15 +126,18 @@
 </div>
 
 <script>
-// Obiekt globalny do monitorowania postępów treningu
+// Obiekt globalny do monitorowania postêpów treningu
 const trainingProgress = {};
+
+// Obiekt globalny do monitorowania postêpów treningu
+let lastData = null; // Przechowywanie ostatnich danych SSE
 
 // Funkcja pomocnicza do generowania statusu jako badge
 function statusBadge(status) {
-    if (status.includes("Zakończony")) {
-        return '<span class="badge bg-success">Zakończony</span>';
-    } else if (status.includes("Błąd")) {
-        return '<span class="badge bg-danger">Błąd podczas treningu</span>';
+    if (status.includes("Zakoñczony")) {
+        return '<span class="badge bg-success">Zakoñczony</span>';
+    } else if (status.includes("B³¹d")) {
+        return '<span class="badge bg-danger">B³¹d podczas treningu</span>';
     } else if (status.includes("Trening w toku")) {
         return '<span class="badge bg-info">Trening w toku</span>';
     } else if (status.includes("Trening wstrzymany")) {
@@ -143,11 +146,14 @@ function statusBadge(status) {
     return `<span class="badge bg-secondary">${status}</span>`;
 }
 
+
 // Funkcje pomocnicze do aktualizacji elementów HTML
 function updateElement(id, content) {
     const element = document.getElementById(id);
     if (element) {
         element.innerHTML = content;
+    } else {
+        console.warn(`Element z id '${id}' nie zosta³ znaleziony.`);
     }
 }
 
@@ -157,6 +163,8 @@ function updateProgressBar(id, progress) {
         progressBar.style.width = `${progress}%`;
         progressBar.setAttribute('aria-valuenow', progress);
         progressBar.innerHTML = `${progress}%`;
+    } else {
+        console.warn(`Progress bar z id '${id}' nie zosta³ znaleziony.`);
     }
 }
 
@@ -182,7 +190,7 @@ function disablePauseResumeButton() {
     }
 }
 
-// Funkcja do zarządzania przyciskiem pauzy/wznawiania w modal
+// Funkcja do zarz¹dzania przyciskiem pauzy/wznawiania w modal
 function handlePauseResumeButton(profileId, isPaused) {
     const modalPauseResumeButton = document.getElementById('modal-pause-resume-btn');
     const profilePauseButton = document.getElementById(`pause-${profileId}`);
@@ -199,27 +207,87 @@ function handlePauseResumeButton(profileId, isPaused) {
             profilePauseButton.innerHTML = '<i class="bi bi-pause-circle-fill"></i> Pauza';
         }
 
-        // Usunięcie wcześniejszych event listenerów, aby uniknąć wielokrotnego przypisywania
+        // Usuniêcie wczeniejszych event listenerów, aby unikn¹æ wielokrotnego przypisywania
         modalPauseResumeButton.replaceWith(modalPauseResumeButton.cloneNode(true));
         profilePauseButton.replaceWith(profilePauseButton.cloneNode(true));
 
-        // Ponowne przypisanie event listenerów po klonowaniu
-        document.getElementById('modal-pause-resume-btn').addEventListener('click', () => {
-            togglePauseResume(profileId);
-        });
+        // Pobranie ponownie elementów po klonowaniu
+        const updatedModalPauseResumeButton = document.getElementById('modal-pause-resume-btn');
+        const updatedProfilePauseButton = document.getElementById(`pause-${profileId}`);
 
-        document.getElementById(`pause-${profileId}`).addEventListener('click', () => {
-            togglePauseResume(profileId);
-        });
+        if (updatedModalPauseResumeButton) {
+            updatedModalPauseResumeButton.addEventListener('click', () => {
+                if (trainingProgress[profileId].is_paused) {
+                    resumeTraining(profileId);
+                } else {
+                    pauseTraining(profileId);
+                }
+            });
+        }
+
+        if (updatedProfilePauseButton) {
+            updatedProfilePauseButton.addEventListener('click', () => {
+                if (trainingProgress[profileId].is_paused) {
+                    resumeTraining(profileId);
+                } else {
+                    pauseTraining(profileId);
+                }
+            });
+        }
     }
 }
 
-// Funkcja do rozpoczynania treningu
+// Funkcja do inicjalizacji odtwarzania audio
+function initializeAudioPlayback() {
+    const playAudioButtons = document.querySelectorAll('.play-audio-btn');
+    playAudioButtons.forEach(button => {
+        button.addEventListener('click', handleAudioPlayback);
+    });
+}
+
+function handleAudioPlayback(event) {
+    event.stopPropagation(); // Zapobiega otwarciu modala po klikniêciu przycisku
+
+    const audioId = event.currentTarget.getAttribute('data-audio-id');
+    const audioElement = document.getElementById(audioId);
+    const button = event.currentTarget;
+
+    if (audioElement) {
+        if (audioElement.paused) {
+            audioElement.play();
+            button.innerHTML = '<i class="bi bi-pause-circle-fill"></i> Pauza';
+        } else {
+            audioElement.pause();
+            button.innerHTML = '<i class="bi bi-play-circle-fill"></i> Odtwórz';
+        }
+
+        // Reset przycisku po zakoñczeniu odtwarzania
+        audioElement.onended = () => {
+            button.innerHTML = '<i class="bi bi-play-circle-fill"></i> Odtwórz';
+        };
+    }
+}
+
+// Funkcja do inicjalizacji potwierdzenia usuniêcia profilu
+function initializeDeleteConfirmation() {
+    const deleteButtons = document.querySelectorAll('.delete-profile-btn');
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', confirmDelete);
+    });
+}
+
+function confirmDelete(event) {
+    if (!confirm('Czy na pewno chcesz usun¹æ ten profil g³osowy?')) {
+        event.preventDefault();
+    }
+}
+
 function startTraining(profileId) {
     const statusId = `status-${profileId}`;
     const progressBarId = `progress-bar-${profileId}`;
     const timeElapsedId = `time-elapsed-${profileId}`;
     const epochId = `epoch-${profileId}`;
+    const lossId = `loss-${profileId}`; // Dodanie identyfikatora dla loss
     const pauseButtonId = `pause-${profileId}`;
 
     // Aktualizacja początkowego statusu
@@ -227,6 +295,7 @@ function startTraining(profileId) {
     updateProgressBar(progressBarId, 0);
     updateElement(timeElapsedId, 'Czas: 0s');
     updateElement(epochId, 'Epoka: 0 z 10');
+    updateElement(lossId, 'Strata: 0.00'); // Inicjalizacja loss
     document.getElementById(pauseButtonId).disabled = false;
 
     // Wysłanie żądania do serwera o rozpoczęcie treningu
@@ -255,111 +324,308 @@ function startTraining(profileId) {
     });
 }
 
-// Monitorowanie postępu za pomocą SSE
+// Funkcja do monitorowania postępu treningu za pomocą SSE
 function startSSE(profileId, modal = false) {
     const source = new EventSource(`/training_status/${profileId}`);
 
-    source.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        const progress = data.progress;
-        const status = data.status;
-        const currentEpoch = data.current_epoch;
-        const totalEpochs = data.total_epochs;
-        const timeElapsed = data.time_elapsed;
-        const loss = data.loss;
-        const isPaused = data.is_paused;
+    source.onmessage = function (event) {
+        try {
+            const data = JSON.parse(event.data);
+            const progress = data.progress;
+            const status = data.status;
+            const currentEpoch = data.current_epoch;
+            const totalEpochs = data.total_epochs;
+            const timeElapsed = data.time_elapsed;
+            const isPaused = data.is_paused;
+            const metrics = data.metrics || {};
+            const loss = data.loss !== undefined ? data.loss.toFixed(4) : '0.00'; // Pobranie loss, jeśli jest dostępny
 
-        // Aktualizacja postępu w tabeli
-        updateProgressBar(`progress-bar-${profileId}`, progress);
-        updateStatus(`status-${profileId}`, statusBadge(status));
-        updateElement(`time-elapsed-${profileId}`, `Czas: ${timeElapsed}s`);
-        updateElement(`epoch-${profileId}`, `Epoka: ${currentEpoch} z ${totalEpochs}`);
-        updateElement(`loss-${profileId}`, `Strata: ${loss}`);
+            // Aktualizacja globalnego obiektu postępu treningu
+            trainingProgress[profileId] = data;
 
-        // Aktualizacja modal
-        if (modal) {
-            updateElement('modal-status', status);
-            updateElement('modal-progress', `${progress}%`);
-            updateProgressBar('modal-progress-bar', progress);
-            updateElement('modal-epoch', `Epoka: ${currentEpoch} z ${totalEpochs}`);
-            updateElement('modal-time-elapsed', `${timeElapsed}s`);
-            updateElement('modal-loss', loss);
-            handlePauseResumeButton(profileId, isPaused);
-        }
+            console.log(`Profile ${profileId} - Status: ${status}, Progress: ${progress}%, Epoch: ${currentEpoch}/${totalEpochs}, Time Elapsed: ${timeElapsed}s, Loss: ${loss}`);
 
-        // Zakończenie po osiągnięciu 100% lub błędzie
-        if (progress >= 100 || status.includes('Błąd')) {
-            source.close();
-            if (modal) {
-                document.getElementById('modal-pause-resume-btn').disabled = true;
+            // Aktualizacja paska postępu w tabeli
+            updateProgressBar(`progress-bar-${profileId}`, progress);
+            updateStatus(`status-${profileId}`, statusBadge(status));
+            updateElement(`time-elapsed-${profileId}`, `Czas: ${timeElapsed}s`);
+            updateElement(`loss-${profileId}`, `Strata: ${loss}`); // Aktualizacja loss
+            updateElement(`epoch-${profileId}`, `Epoka: ${currentEpoch} z ${totalEpochs}`);
+
+            // Aktualizacja metryk w tabeli (jeśli są dostępne)
+            if (metrics.WER !== undefined) {
+                updateElement(`wer-${profileId}`, `WER: ${metrics.WER.toFixed(2)}%`);
             }
+            if (metrics.CER !== undefined) {
+                updateElement(`cer-${profileId}`, `CER: ${metrics.CER.toFixed(2)}%`);
+            }
+
+            // Aktualizacja paska postępu i informacji w modalu, jeśli jest otwarty
+            if (modal) {
+                updateElement('modal-status', status);
+                updateElement('modal-progress', `${progress}%`);
+                updateProgressBar('modal-progress-bar', progress);
+                updateElement('modal-epoch', `Epoka: ${currentEpoch} z ${totalEpochs}`);
+                updateElement('modal-time-elapsed', `${timeElapsed}s`);
+                updateElement('modal-wer', metrics.WER !== undefined ? `${metrics.WER.toFixed(2)}%` : '0.00%');
+                updateElement('modal-cer', metrics.CER !== undefined ? `${metrics.CER.toFixed(2)}%` : '0.00%');
+                updateElement('modal-loss', `Strata: ${loss}`); // Dodanie loss do modalu
+                handlePauseResumeButton(profileId, isPaused);
+            }
+
+            // Zakończenie po osiągnięciu 100% lub wystąpieniu błędu
+            if (progress >= 100 || status.startsWith('Błąd')) {
+                source.close();
+                if (modal) {
+                    disablePauseResumeButton();
+                }
+            }
+        } catch (err) {
+            console.error("Błąd podczas przetwarzania danych SSE:", err);
         }
     };
 
-    source.onerror = function(error) {
-        console.error("Błąd SSE:", error);
+    source.onerror = function (error) {
+        console.error("Błąd SSE: ", error);
         source.close();
         if (modal) {
-            document.getElementById('modal-pause-resume-btn').disabled = true;
+            disablePauseResumeButton();
         }
         alert("Wystąpił błąd podczas monitorowania postępu treningu.");
     };
 }
 
-// Zarządzanie stanem pauzy i wznowienia treningu
-function togglePauseResume(profileId) {
-    const isPaused = trainingProgress[profileId].is_paused;
-
-    const action = isPaused ? 'resume_training' : 'pause_training';
-
-    fetch(`/${action}/${profileId}`, { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            if (data.message) {
-                console.log(data.message);
-                trainingProgress[profileId].is_paused = !isPaused;
-                handlePauseResumeButton(profileId, trainingProgress[profileId].is_paused);
-            } else if (data.error) {
-                console.error('Błąd:', data.error);
-                alert(`Błąd podczas ${isPaused ? 'wznawiania' : 'wstrzymywania'} treningu: ${data.error}`);
+    // Audio file preview
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    fileInputs.forEach(input => {
+        input.addEventListener('change', event => {
+            const file = event.target.files[0];
+            if (file) {
+                const previewId = input.getAttribute('data-preview');
+                const preview = document.getElementById(previewId);
+                if (preview) {
+                    try {
+                        preview.src = URL.createObjectURL(file);
+                        preview.style.display = 'block';
+                    } catch (error) {
+                        console.error('B³¹d podczas ³adowania podgl¹du pliku:', error);
+                        alert('Nie uda³o siê za³adowaæ podgl¹du pliku.');
+                    }
+                } else {
+                    console.warn(`Podgl¹d z id '${previewId}' nie zosta³ znaleziony.`);
+                }
             }
-        })
-        .catch((error) => {
-            console.error(`Błąd podczas ${isPaused ? 'wznawiania' : 'wstrzymywania'} treningu:`, error);
-            alert(`Błąd podczas ${isPaused ? 'wznawiania' : 'wstrzymywania'} treningu.`);
         });
-}
-
-// Inicjalizacja przycisków i obsługa audio
+    });
+    
+// Funkcja do zarz¹dzania przyciskami treningu i innymi elementami po za³adowaniu strony
 document.addEventListener('DOMContentLoaded', () => {
+    // Inicjalizacja przycisków odtwarzania audio
+    initializeAudioPlayback();
+
+    // Potwierdzenie usuniêcia profilu
+    initializeDeleteConfirmation();
+
+    // Obs³uga przycisków rozpoczêcia treningu
+    initializeTrainingButtons();
+
+    // Obs³uga klikniêæ wierszy tabeli do otwierania modala
+    initializeModalHandling();
+});
+
+// Funkcja do inicjalizacji przycisków treningu
+function initializeTrainingButtons() {
     const startTrainingButtons = document.querySelectorAll('.start-training-btn');
     startTrainingButtons.forEach(button => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation(); // Zapobiega otwarciu modala po klikniêciu przycisku
             const profileId = button.getAttribute('data-profile-id');
             startTraining(profileId);
         });
     });
 
-    const playAudioButtons = document.querySelectorAll('.play-audio-btn');
-    playAudioButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            const audioId = button.getAttribute('data-audio-id');
-            const audioElement = document.getElementById(audioId);
-
-            if (audioElement.paused) {
-                audioElement.play();
-                button.innerHTML = '<i class="bi bi-pause-circle-fill"></i> Pauza';
-            } else {
-                audioElement.pause();
-                button.innerHTML = '<i class="bi bi-play-circle-fill"></i> Odtwórz';
+    // Inicjalizacja przycisków pauzy/wznawiania w modalu
+    const modalPauseResumeButton = document.getElementById('modal-pause-resume-btn');
+    if (modalPauseResumeButton) {
+        modalPauseResumeButton.addEventListener('click', () => {
+            const profileId = getCurrentModalProfileId();
+            if (profileId) {
+                togglePauseResume(profileId);
             }
-
-            audioElement.onended = () => {
-                button.innerHTML = '<i class="bi bi-play-circle-fill"></i> Odtwórz';
-            };
         });
+    }
+}
+
+// Funkcja do inicjalizacji obs³ugi modala
+function initializeModalHandling() {
+    const clickableRows = document.querySelectorAll('.clickable-row');
+    clickableRows.forEach(row => {
+        row.addEventListener('click', handleModalOpen);
     });
-});
+}
+
+function handleModalOpen(event) {
+    // Zapobiega otwarciu modala, jeli klikniêto przycisk
+    if (event.target.closest('button')) return;
+
+    const profileId = event.currentTarget.getAttribute('data-profile-id');
+    const modalElement = document.getElementById('trainingModal');
+    const modal = new bootstrap.Modal(modalElement, {
+        keyboard: false
+    });
+
+    // Dodaj atrybut data-profile-id do modala, aby mo¿na by³o go odczytaæ póniej
+    modalElement.setAttribute('data-profile-id', profileId);
+
+    modal.show();
+
+    initializeModalContent(profileId);
+    // Rozpoczêcie monitorowania postêpu tylko jeli trening jest ju¿ w toku
+    if (trainingProgress[profileId]) {
+        startSSE(profileId, true);
+    }
+}
+// Funkcja do obsługi straty, jeśli serwer przesyła `data.loss`
+function updateLoss(profileId, loss) {
+    const lossId = `loss-${profileId}`;
+    updateElement(lossId, `Strata: ${loss.toFixed(4)}`);
+}
+    
+function initializeModalContent(profileId) {
+    if (trainingProgress[profileId]) {
+        const data = trainingProgress[profileId];
+        updateElement('modal-status', statusBadge(data.status));
+        updateElement('modal-progress', `${data.progress}%`);
+        updateProgressBar('modal-progress-bar', data.progress);
+        updateElement('modal-epoch', `Epoka: ${data.current_epoch} z ${data.total_epochs}`);
+        updateElement('modal-time-elapsed', `${data.time_elapsed}s`);
+        updateElement('modal-wer', data.metrics.WER !== undefined ? `${data.metrics.WER.toFixed(2)}%` : '0.00%');
+        updateElement('modal-cer', data.metrics.CER !== undefined ? `${data.metrics.CER.toFixed(2)}%` : '0.00%');
+        updateElement('modal-loss', data.loss !== undefined ? `Strata: ${data.loss.toFixed(4)}` : 'Strata: 0.00');
+        handlePauseResumeButton(profileId, data.is_paused);
+    } else {
+        updateElement('modal-status', `<span class="badge bg-secondary">Nie rozpoczynano</span>`);
+        updateElement('modal-progress', "0%");
+        updateProgressBar('modal-progress-bar', 0);
+        updateElement('modal-epoch', "Epoka: 0 z 10");
+        updateElement('modal-time-elapsed', "0s");
+        updateElement('modal-wer', "WER: 0.00%");
+        updateElement('modal-cer', "CER: 0.00%");
+        updateElement('modal-loss', "Strata: 0.00");
+        disablePauseResumeButton();
+    }
+}
+
+// Funkcja do uzyskania aktualnego profileId w modalu
+function getCurrentModalProfileId() {
+    // Zak³adam, ¿e modal jest otwarty dla jednego profilu na raz
+    const modal = document.getElementById('trainingModal');
+    if (modal) {
+        return modal.getAttribute('data-profile-id');
+    }
+    return null;
+}
+
+// Funkcja do zarz¹dzania pauz¹/wznawianiem treningu
+function togglePauseResume(profileId) {
+    const isPaused = trainingProgress[profileId].is_paused;
+
+    if (isPaused) {
+        resumeTraining(profileId);
+    } else {
+        pauseTraining(profileId);
+    }
+}
+
+function pauseTraining(profileId) {
+    console.log(`Wstrzymywanie treningu dla profilu ID: ${profileId}`);
+    fetch(`/pause_training/${profileId}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                console.log(data.message);
+                trainingProgress[profileId].is_paused = true;
+                updateStatus(`status-${profileId}`, statusBadge("Trening wstrzymany"));
+                handlePauseResumeButton(profileId, true);
+            } else if (data.error) {
+                console.error('B³¹d:', data.error);
+                alert(`B³¹d podczas wstrzymywania treningu: ${data.error}`);
+            }
+        })
+        .catch((error) => {
+            console.error('B³¹d podczas wstrzymywania treningu:', error);
+            alert('B³¹d podczas wstrzymywania treningu.');
+        });
+}
+
+function resumeTraining(profileId) {
+    console.log(`Wznawianie treningu dla profilu ID: ${profileId}`);
+    fetch(`/resume_training/${profileId}`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                console.log(data.message);
+                trainingProgress[profileId].is_paused = false;
+                updateStatus(`status-${profileId}`, statusBadge("Trening w toku..."));
+                handlePauseResumeButton(profileId, false);
+            } else if (data.error) {
+                console.error('B³¹d:', data.error);
+                alert(`B³¹d podczas wznawiania treningu: ${data.error}`);
+            }
+        })
+        .catch((error) => {
+            console.error('B³¹d podczas wznawiania treningu:', error);
+            alert('B³¹d podczas wznawiania treningu.');
+        });
+}
+
+// Funkcja do inicjalizacji obs³ugi przycisków w modal
+function handlePauseResumeButton(profileId, isPaused) {
+    const modalPauseResumeButton = document.getElementById('modal-pause-resume-btn');
+    const profilePauseButton = document.getElementById(`pause-${profileId}`);
+
+    if (modalPauseResumeButton && profilePauseButton) {
+        modalPauseResumeButton.disabled = false;
+        profilePauseButton.disabled = false;
+
+        if (isPaused) {
+            modalPauseResumeButton.innerHTML = '<i class="bi bi-play-circle-fill"></i> Wznów';
+            profilePauseButton.innerHTML = '<i class="bi bi-play-circle-fill"></i> Wznów';
+        } else {
+            modalPauseResumeButton.innerHTML = '<i class="bi bi-pause-circle-fill"></i> Pauza';
+            profilePauseButton.innerHTML = '<i class="bi bi-pause-circle-fill"></i> Pauza';
+        }
+
+        // Usuniêcie wczeniejszych event listenerów, aby unikn¹æ wielokrotnego przypisywania
+        modalPauseResumeButton.replaceWith(modalPauseResumeButton.cloneNode(true));
+        profilePauseButton.replaceWith(profilePauseButton.cloneNode(true));
+
+        // Pobranie ponownie elementów po klonowaniu
+        const updatedModalPauseResumeButton = document.getElementById('modal-pause-resume-btn');
+        const updatedProfilePauseButton = document.getElementById(`pause-${profileId}`);
+
+        if (updatedModalPauseResumeButton) {
+            updatedModalPauseResumeButton.addEventListener('click', () => {
+                if (trainingProgress[profileId].is_paused) {
+                    resumeTraining(profileId);
+                } else {
+                    pauseTraining(profileId);
+                }
+            });
+        }
+
+        if (updatedProfilePauseButton) {
+            updatedProfilePauseButton.addEventListener('click', () => {
+                if (trainingProgress[profileId].is_paused) {
+                    resumeTraining(profileId);
+                } else {
+                    pauseTraining(profileId);
+                }
+            });
+        }
+    }
+}
+
 </script>
 
 {% endblock %}
