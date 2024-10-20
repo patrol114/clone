@@ -2448,25 +2448,37 @@ def tts():
             return redirect(request.url)
 
         if not voice_id:
-            flash("Nie wybrano profilu g³osowego.", 'danger')
+            flash("Nie wybrano profilu głosowego.", 'danger')
             return redirect(request.url)
 
         profile = VoiceProfile.query.filter_by(id=voice_id, user_id=user_id).first()
         if not profile:
-            flash("Profil g³osowy nie zosta³ znaleziony.", 'danger')
+            flash("Profil głosowy nie został znaleziony.", 'danger')
+            return redirect(request.url)
+
+        # Sprawdzenie, czy profil ma przypisany plik modelu
+        if not profile.model_filename:
+            flash("Nie znaleziono przypisanego modelu ASR do profilu głosowego.", 'danger')
+            return redirect(request.url)
+
+        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], profile.model_filename)
+
+        if not os.path.exists(model_path):
+            logger.error(f"Błąd: Plik modelu ASR nie został znaleziony: {model_path}")
+            flash(f"Błąd: Plik modelu ASR nie został znaleziony.", 'danger')
             return redirect(request.url)
 
         try:
-            output_filename = generate_speech(text, profile, emotion, intonation)
-            flash("Mowa zosta³a wygenerowana i jest dostêpna do pobrania.", 'success')
+            output_filename = generate_speech(text, profile, emotion, intonation, model_path)
+            flash("Mowa została wygenerowana i jest dostępna do pobrania.", 'success')
             return send_from_directory(app.config['GENERATED_FOLDER'], output_filename, as_attachment=True)
         except Exception as e:
-            logger.error(f"B³¹d podczas generowania mowy: {e}")
-            flash(f"B³¹d podczas generowania mowy: {e}", 'danger')
+            logger.error(f"Błąd podczas generowania mowy: {e}")
+            flash(f"Błąd podczas generowania mowy: {e}", 'danger')
             return redirect(request.url)
 
     return render_template('tts.html', profiles=profiles)
-
+    
 @app.route('/play_audio/<filename>')
 @jwt_required()
 def play_audio(filename: str):
