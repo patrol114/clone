@@ -90,7 +90,8 @@ def get_asr_brain():
             # Dodaj inicjalizację Checkpointera
             checkpointer = Checkpointer(
                 checkpoints_dir=app.config['ASR_MODELS_FOLDER'],  # Ustaw ścieżkę do zapisu modeli
-                recoverables={"model": model}  # Model, który będzie zapisywany
+                recoverables={"model": model, "optimizer": torch.optim.AdamW(model.parameters(), lr=0.001)}  # Dodanie modelu i optymalizatora
+
             )
             
             asr_brain_instance = ASRBrain(
@@ -113,7 +114,7 @@ def get_asr_brain():
                     "device": device.type,
                     "precision": "bf16" if device.type == "cpu" else "fp16"
                 },
-                #checkpointer=checkpointer  # Dodanie Checkpointera do ASRBrain
+                checkpointer=checkpointer  # Dodanie Checkpointera do ASRBrain
             )
             logger.info("ASRBrain Singleton został zainicjalizowany.")
         return asr_brain_instance
@@ -1521,8 +1522,8 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
                 model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
                 model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
                 
-                # Użyjemy Checkpointer do zapisu modelu
-                asr_brain.checkpointer.save_checkpoint()  # Zapisuje model
+                # Użycie Checkpointer do zapisu modelu
+                asr_brain.checkpointer.save_checkpoint(name=model_filename)  # Zapisz checkpoint z nazwą
                 
                 logger.info(f"Trenowany model ASR zapisany jako {model_path}")
 
