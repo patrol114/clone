@@ -1,0 +1,258 @@
+<!-- templates/audio_analysis.html -->
+{% extends "base.html" %}
+
+{% block title %}
+Analiza Audio - {{ profile.name }}
+{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>Analiza Audio: {{ profile.name }}</h2>
+    <hr>
+
+    <!-- Sekcja Transkrypcji -->
+    <h4>Transkrypcja:</h4>
+    {% if transcription %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <p>{{ transcription }}</p>
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-warning" role="alert">
+            Transkrypcja nie jest dostępna.
+        </div>
+    {% endif %}
+
+    <!-- Sekcja Szczegółów Przetwarzania -->
+    <h4>Szczegóły Przetwarzania</h4>
+    <ul class="list-group">
+        <li class="list-group-item"><strong>Czas trwania:</strong> {{ processing_info.duration_sec }} sekund</li>
+        <li class="list-group-item"><strong>Sample Rate:</strong> {{ processing_info.sample_rate }} Hz</li>
+        <li class="list-group-item"><strong>Liczba Mel Bands:</strong> {{ processing_info.n_mels }}</li>
+        <li class="list-group-item"><strong>N FFT:</strong> {{ processing_info.n_fft }}</li>
+        <li class="list-group-item"><strong>Hop Length:</strong> {{ processing_info.hop_length }}</li>
+        <li class="list-group-item"><strong>Kształt Mel Spectrogram:</strong> {{ processing_info.mel_tensor_shape }}</li>
+        <li class="list-group-item"><strong>Stosunek Sygnału do Szumu (SNR):</strong> {{ processing_info.snr_db }} dB</li>
+        <li class="list-group-item"><strong>Clipping:</strong> {% if processing_info.clipping_detected %}Tak{% else %}Nie{% endif %}</li>
+        <li class="list-group-item"><strong>RMS Energy:</strong> {{ processing_info.rms_db }} dB</li>
+        <li class="list-group-item"><strong>Zero-Crossing Rate (ZCR):</strong> {{ processing_info.zcr }}</li>
+    </ul>
+
+    <!-- Sekcja Mel Spectrogram -->
+    <h4 class="mt-4">Mel Spectrogram</h4>
+    <div id="melSpectrogramContainer" style="width: 100%; height: 500px;"></div>
+
+    <!-- Sekcja Fali Dźwiękowej -->
+    <h4 class="mt-5">Fala Dźwiękowa</h4>
+    <div id="waveformContainer" style="width: 100%; height: 200px;"></div>
+
+    <!-- Sekcja Oceny Przydatności do Treningu -->
+    <h4 class="mt-4">Ocena Przydatności do Treningu</h4>
+    {% if suitability.is_suitable %}
+        <div class="alert alert-success" role="alert">
+            {{ suitability.reason }}
+        </div>
+    {% else %}
+        <div class="alert alert-danger" role="alert">
+            {{ suitability.reason }}
+        </div>
+    {% endif %}
+
+    <!-- Przyciski Akcji -->
+    {% if suitability.is_suitable %}
+        <form action="{{ url_for('train_asr_model_route', profile_id=profile.id) }}" method="POST" class="mb-3">
+            <button type="submit" class="btn btn-primary">Rozpocznij Trening ASR</button>
+        </form>
+    {% else %}
+        <a href="{{ url_for('upload_voice') }}" class="btn btn-warning mb-3">Prześlij Inne Nagranie</a>
+    {% endif %}
+
+    <a href="{{ url_for('profile') }}" class="btn btn-secondary">Powrót do Profilów</a>
+
+    <!-- Przyciski Pobierania Wykresów -->
+    <div class="mt-3">
+        <button id="downloadMelSpectrogram" class="btn btn-outline-secondary">Pobierz Mel Spectrogram</button>
+        <button id="downloadWaveform" class="btn btn-outline-secondary">Pobierz Falę Dźwiękową</button>
+    </div>
+</div>
+
+<!-- Skrypt do rysowania Mel Spectrogram i Fali Dźwiękowej -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Sprawdzenie, czy mel_spectrogram jest dostępny i jest tablicą 2D
+    const melData = {{ mel_spectrogram | tojson | safe }};
+    const audioData = {{ processing_info.audio_signal | tojson | safe }};
+
+    if (Array.isArray(melData) && melData.length > 0 && Array.isArray(melData[0])) {
+        // Opcjonalne normalizowanie danych (jeśli to konieczne)
+        const normalizedMelData = melData.map(row => row.map(value => value));
+
+        const melPlotData = [{
+            z: normalizedMelData,
+            type: 'heatmap',
+            colorscale: 'Viridis',
+            zmin: -80,  // Minimalna wartość Mel Spectrogramu (dB)
+            zmax: 0,    // Maksymalna wartość Mel Spectrogramu (dB)
+            colorbar: {
+                title: 'dB',
+                titleside: 'right',
+                titlefont: {
+                    size: 14,
+                    color: '#000'
+                },
+                tickfont: {
+                    size: 12,
+                    color: '#000'
+                }
+            },
+            hovertemplate: 
+                'Frame: %{x}<br>' +
+                'Mel Band: %{y}<br>' +
+                'Intensity: %{z} dB<br>' +
+                '<extra></extra>'
+        }];
+
+        const melLayout = {
+            title: {
+                text: 'Mel Spectrogram',
+                font: {
+                    size: 18
+                }
+            },
+            xaxis: {
+                title: {
+                    text: 'Frame',
+                    font: {
+                        size: 14
+                    }
+                },
+                showgrid: false,
+                zeroline: false
+            },
+            yaxis: {
+                title: {
+                    text: 'Mel Band',
+                    font: {
+                        size: 14
+                    }
+                },
+                autorange: 'reversed',
+                showgrid: false,
+                zeroline: false
+            },
+            height: 600,
+            margin: {
+                t: 60,
+                r: 50,
+                b: 50,
+                l: 60
+            },
+            paper_bgcolor: '#ffffff',
+            plot_bgcolor: '#ffffff'
+        };
+
+        Plotly.newPlot('melSpectrogramContainer', melPlotData, melLayout, {responsive: true});
+    } else {
+        // Wyświetlenie komunikatu, jeśli Mel Spectrogram nie jest dostępny
+        const container = document.getElementById('melSpectrogramContainer');
+        container.innerHTML = `
+            <div class="alert alert-warning" role="alert">
+                Mel Spectrogram nie jest dostępny do wyświetlenia.
+            </div>
+        `;
+    }
+
+    // Rysowanie Wykresu Fali Dźwiękowej
+    if (Array.isArray(audioData) && audioData.length > 0) {
+        const samplingRate = {{ processing_info.sample_rate }};
+        const timeAxis = audioData.map((_, index) => index / samplingRate);
+
+        const waveformPlotData = [{
+            x: timeAxis,
+            y: audioData,
+            type: 'scatter',
+            mode: 'lines',
+            line: {color: '#1f77b4'},
+            name: 'Fala Dźwiękowa'
+        }];
+
+        const waveformLayout = {
+            title: {
+                text: 'Fala Dźwiękowa',
+                font: {
+                    size: 18
+                }
+            },
+            xaxis: {
+                title: {
+                    text: 'Czas (s)',
+                    font: {
+                        size: 14
+                    }
+                },
+                showgrid: false,
+                zeroline: false
+            },
+            yaxis: {
+                title: {
+                    text: 'Amplituda',
+                    font: {
+                        size: 14
+                    }
+                },
+                showgrid: false,
+                zeroline: false
+            },
+            height: 300,
+            margin: {
+                t: 60,
+                r: 50,
+                b: 50,
+                l: 60
+            },
+            paper_bgcolor: '#ffffff',
+            plot_bgcolor: '#ffffff'
+        };
+
+        Plotly.newPlot('waveformContainer', waveformPlotData, waveformLayout, {responsive: true});
+    } else {
+        const container = document.getElementById('waveformContainer');
+        container.innerHTML = `
+            <div class="alert alert-warning" role="alert">
+                Fala dźwiękowa nie jest dostępna do wyświetlenia.
+            </div>
+        `;
+    }
+
+    // Funkcje do pobierania wykresów jako obrazy
+    document.getElementById('downloadMelSpectrogram').addEventListener('click', function() {
+        Plotly.toImage('melSpectrogramContainer', {format: 'png', height: 600, width: 800})
+            .then(function(url) {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'mel_spectrogram.png';
+                a.click();
+            })
+            .catch(function(err) {
+                alert('Błąd podczas pobierania Mel Spectrogram: ' + err);
+            });
+    });
+
+    document.getElementById('downloadWaveform').addEventListener('click', function() {
+        Plotly.toImage('waveformContainer', {format: 'png', height: 300, width: 800})
+            .then(function(url) {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'waveform.png';
+                a.click();
+            })
+            .catch(function(err) {
+                alert('Błąd podczas pobierania Fali Dźwiękowej: ' + err);
+            });
+    });
+});
+
+</script>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Voice Cloning App{% endblock %}
+
+{% block head %}
+<!-- No inline styles here -->
+{% endblock %}
+
+{% block content %}
+<div class="jumbotron bg-light p-3 rounded animate-in" style="animation-delay: 0.1s;">
+    <h1 class="display-6">Witaj, {{ username }}!</h1> <!-- Reduced display size -->
+    <p class="lead">To jest Twój dashboard do zarządzania profilami głosowymi i generowania mowy.</p>
+    <hr class="my-2">
+    <p>Wykorzystaj poniższe karty, aby przejść do odpowiednich sekcji aplikacji.</p>
+</div>
+
+<div class="row row-cols-1 row-cols-md-3 g-4 mt-4">
+    <div class="col animate-in" style="animation-delay: 0.3s;">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Zarządzaj Profilami Głosowymi</h5>
+                <p class="card-text">Dodawaj, edytuj lub usuwaj swoje profile głosowe.</p>
+                <a href="{{ url_for('profile') }}" class="btn btn-primary w-100">Przejdź do Profili</a>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Ostatnia aktualizacja: {{ current_time }}</small>
+            </div>
+        </div>
+    </div>
+    <div class="col animate-in" style="animation-delay: 0.5s;">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Generuj Mowę</h5>
+                <p class="card-text">Wprowadź tekst i wygeneruj mowę za pomocą wybranego profilu głosowego.</p>
+                <a href="{{ url_for('tts') }}" class="btn btn-primary w-100">Rozpocznij Syntezę</a>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Dostępne funkcje TTS</small>
+            </div>
+        </div>
+    </div>
+    <div class="col animate-in" style="animation-delay: 0.7s;">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Prześlij Nowy Profil Głosowy</h5>
+                <p class="card-text">Dodaj nowy plik audio, aby stworzyć nowy profil głosowy.</p>
+                <a href="{{ url_for('upload_voice') }}" class="btn btn-primary w-100">Prześlij Głos</a>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Dodawanie głosów</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', (event) => {
+    const observerOptions = {
+        threshold: 0.1
+    };
+
+    const observer = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.animationPlayState = 'running';
+                observer.unobserve(entry.target);
+            }
+        });
+    }, observerOptions);
+
+    document.querySelectorAll('.animate-in').forEach(el => {
+        el.style.animationPlayState = 'paused';
+        observer.observe(el);
+    });
+});
+</script>
+{% endblock %}

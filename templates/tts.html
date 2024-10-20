@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Generuj Mów? - Voice Cloning App{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Generowanie Mowy</h2>
+    <form method="POST" action="{{ url_for('tts') }}">
+        <div class="mb-3">
+            <label for="text" class="form-label">Tekst do syntezy</label>
+            <textarea class="form-control" id="text" name="text" rows="3" required></textarea>
+        </div>
+        <div class="mb-3">
+            <label for="voice_id" class="form-label">Wybierz Profil Głosowy</label>
+            <select class="form-select" id="voice_id" name="voice_id" required>
+                <option value="" disabled selected>-- Wybierz Profil Głosowy --</option>
+                {% for profile in profiles %}
+                    <option value="{{ profile.id }}">{{ profile.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-mic-fill me-2"></i> Generuj Mówę?
+        </button>
+    </form>
+</div>
+{% endblock %}

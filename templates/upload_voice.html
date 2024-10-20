@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Prześlij Profil Głosu{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <h2 class="text-center mb-4">Prześlij Profil Głosu</h2>
+        <form method="POST" action="{{ url_for('upload_voice') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
+            <!-- Profile Name Field -->
+            <div class="mb-3">
+                <label for="name" class="form-label">Nazwa Profilu</label>
+                <input 
+                    type="text" 
+                    class="form-control" 
+                    id="name" 
+                    name="name" 
+                    placeholder="Wprowadź nazwę profilu" 
+                    required
+                >
+                <div class="invalid-feedback">
+                    Nazwa profilu jest wymagana.
+                </div>
+            </div>
+
+            <!-- Audio File Selection Field -->
+            <div class="mb-3">
+                <label for="file" class="form-label">Wybierz Plik Audio</label>
+                <input 
+                    type="file" 
+                    class="form-control" 
+                    id="file" 
+                    name="file" 
+                    accept="audio/*" 
+                    required
+                >
+                <div class="invalid-feedback">
+                    Proszę wybrać plik audio.
+                </div>
+                <small class="form-text text-muted">Obsługiwane formaty: WAV, MP3, FLAC, OGG.</small>
+            </div>
+
+            <!-- Audio File Preview -->
+            <div class="mb-3">
+                <label for="audio-preview" class="form-label">Podgląd Pliku Audio</label>
+                <audio id="audio-preview" controls style="display: none;" class="w-100 mt-2">
+                    Twoja przeglądarka nie obsługuje elementu audio.
+                </audio>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">Prześlij</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if processing_info %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <h3 class="text-center">Informacje o Przetworzonym Pliku</h3>
+        <ul class="list-group">
+            <li class="list-group-item">Długość: {{ processing_info.duration_sec }} sekund</li>
+            <li class="list-group-item">Częstotliwość próbkowania: {{ processing_info.sample_rate }} Hz</li>
+            <li class="list-group-item">Liczba pasm mel: {{ processing_info.n_mels }}</li>
+            <li class="list-group-item">Długość okna FFT: {{ processing_info.n_fft }}</li>
+            <li class="list-group-item">Długość skoku: {{ processing_info.hop_length }}</li>
+            <li class="list-group-item">Kształt mel spektrogramu: {{ processing_info.mel_tensor_shape }}</li>
+            <li class="list-group-item">SNR: {{ processing_info.snr_db }} dB</li>
+            <li class="list-group-item">Clipping: {{ processing_info.clipping_detected | yesno("Tak", "Nie") }}</li>
+            <li class="list-group-item">RMS Energy: {{ processing_info.rms_db }} dB</li>
+            <li class="list-group-item">ZCR: {{ processing_info.zcr }}</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+<script>
+// Audio file preview
+document.getElementById('file').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    const audioPreview = document.getElementById('audio-preview');
+    if (file) {
+        const audioURL = URL.createObjectURL(file);
+        audioPreview.src = audioURL;
+        audioPreview.style.display = 'block';
+    } else {
+        audioPreview.style.display = 'none';
+    }
+});
+
+// Frontend form validation
+(function () {
+    'use strict'
+    const forms = document.querySelectorAll('.needs-validation')
+    Array.prototype.slice.call(forms).forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            form.classList.add('was-validated')
+        }, false)
+    })
+})()
+</script>
+
+{% endblock %}
