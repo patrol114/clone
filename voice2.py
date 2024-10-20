@@ -2140,8 +2140,12 @@ def dashboard():
 def upload_voice():
     user_id = get_jwt_identity()
     if request.method == 'POST':
+        # Sprawdzenie, czy plik jest w żądaniu
         if 'file' not in request.files:
-            flash("Brak pliku w ¿¹daniu.", 'danger')
+            message = "Brak pliku w żądaniu."
+            if request.is_json:
+                return jsonify({"success": False, "message": message}), 400
+            flash(message, 'danger')
             return redirect(request.url)
 
         file = request.files['file']
@@ -2149,11 +2153,17 @@ def upload_voice():
         language = request.form.get('language', 'pl').strip()
 
         if file.filename == '':
-            flash("Nie wybrano pliku.", 'danger')
+            message = "Nie wybrano pliku."
+            if request.is_json:
+                return jsonify({"success": False, "message": message}), 400
+            flash(message, 'danger')
             return redirect(request.url)
 
         if not allowed_file(file.filename):
-            flash("Nieobs³ugiwany format pliku audio.", 'danger')
+            message = "Nieobsługiwany format pliku audio."
+            if request.is_json:
+                return jsonify({"success": False, "message": message}), 400
+            flash(message, 'danger')
             return redirect(request.url)
 
         filename = secure_filename(file.filename)
@@ -2166,22 +2176,30 @@ def upload_voice():
                 audio.export(upload_path, format='wav')
             else:
                 file.save(upload_path)
-            logger.info(f"Plik audio zosta³ przes³any: {upload_path}")
+            logger.info(f"Plik audio został przesłany: {upload_path}")
         except Exception as e:
-            logger.error(f"B³¹d podczas zapisywania lub konwertowania pliku: {e}")
-            flash("Nie uda³o siê zapisaæ lub przekonwertowaæ pliku.", 'danger')
+            logger.error(f"Błąd podczas zapisywania lub konwertowania pliku: {e}")
+            message = "Nie udało się zapisać lub przekonwertować pliku."
+            if request.is_json:
+                return jsonify({"success": False, "message": message}), 500
+            flash(message, 'danger')
             return redirect(request.url)
 
         try:
+            # Pobranie wybranych opcji augmentacji
+            augment_options = request.form.get('augment_options', '')
+            augment_options = augment_options.split(',') if augment_options else []
+
             processed_filename = unique_filename
             processed_path = os.path.join(app.config['PROCESSED_FOLDER'], processed_filename)
-            process_audio(upload_path, processed_path)
+            process_audio(upload_path, processed_path, augment_options=augment_options)
             logger.info(f"Plik audio przetworzony: {processed_path}")
 
-            # Transcription using Whisper
+            # Transkrypcja za pomocą Whisper
             transcription = transcribe_with_whisper(processed_path)
-            print(f"Transkrypcja zakoñczona: {transcription}")
+            logger.info(f"Transkrypcja zakończona: {transcription}")
 
+            # Tworzenie profilu głosu
             voice_profile = VoiceProfile(
                 user_id=user_id,
                 name=name,
@@ -2192,17 +2210,23 @@ def upload_voice():
             db.session.add(voice_profile)
             db.session.commit()
 
-            flash("Profil g³osowy zosta³ utworzony, przetworzony i transkrybowany.", 'success')
+            message = "Profil głosowy został utworzony, przetworzony i transkrybowany."
+            if request.is_json:
+                return jsonify({"success": True, "profile_id": voice_profile.id, "message": message}), 200
+            flash(message, 'success')
             return redirect(url_for('analyze_audio', profile_id=voice_profile.id))
 
         except Exception as e:
             db.session.rollback()
-            logger.error(f"B³¹d podczas przetwarzania audio: {e}")
-            flash("Wyst¹pi³ b³¹d podczas przetwarzania audio.", 'danger')
+            logger.error(f"Błąd podczas przetwarzania audio: {e}")
+            message = "Wystąpił błąd podczas przetwarzania audio."
+            if request.is_json:
+                return jsonify({"success": False, "message": message}), 500
+            flash(message, 'danger')
             return redirect(request.url)
 
+    # GET request
     return render_template('upload_voice.html')
-
 
 @app.route('/profile')
 @jwt_required()
@@ -2219,6 +2243,7 @@ def profile():
         })
 
     return render_template('profile.html', profiles=profiles_with_training_status)
+
 @app.route('/train_asr_model/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def train_asr_model_route(profile_id):
