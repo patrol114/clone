@@ -68,6 +68,7 @@ from speechbrain.core import Brain
 from speechbrain.dataio.dataset import DynamicItemDataset
 from speechbrain.dataio.dataio import read_audio
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from speechbrain.utils.checkpoints import Checkpointer
 
 from speechbrain.nnet.losses import ctc_loss
 
@@ -80,17 +81,23 @@ def get_asr_brain():
     global asr_brain_instance
     with asr_brain_lock_singleton:
         if asr_brain_instance is None:
-            logger.info("£adowanie modelu ASR (Singleton)...")
+            logger.info("Ładowanie modelu ASR (Singleton)...")
             model, processor, device = load_asr_model()
             if not model or not processor:
-                logger.critical("Nie uda³o siê za³adowaæ modelu ASR.")
-                raise RuntimeError("Nie uda³o siê za³adowaæ modelu ASR.")
-
+                logger.critical("Nie udało się załadować modelu ASR.")
+                raise RuntimeError("Nie udało się załadować modelu ASR.")
+            
+            # Dodaj inicjalizację Checkpointera
+            checkpointer = Checkpointer(
+                checkpoints_dir=app.config['ASR_MODELS_FOLDER'],  # Ustaw ścieżkę do zapisu modeli
+                recoverables={"model": model}  # Model, który będzie zapisywany
+            )
+            
             asr_brain_instance = ASRBrain(
                 modules={"model": model},
                 opt_class=lambda params: torch.optim.AdamW(params, lr=0.001),
                 hparams={
-                    "compute_cost": sb.nnet.losses.ctc_loss,  # Przyk³adowa funkcja straty
+                    "compute_cost": sb.nnet.losses.ctc_loss,  # Przykładowa funkcja straty
                     "processor": processor,
                     "sample_rate": 16000,
                     "target_sampling_rate": 16000,
@@ -100,17 +107,17 @@ def get_asr_brain():
                     "normalize_audio": True,
                     "blank_index": 0,
                     "max_epochs": 10,
-                    "downsample_factor": 320  # Dodaj tê liniê
-
+                    "downsample_factor": 320
                 },
                 run_opts={
                     "device": device.type,
                     "precision": "bf16" if device.type == "cpu" else "fp16"
-                }
+                },
+                checkpointer=checkpointer  # Dodanie Checkpointera do ASRBrain
             )
-            logger.info("ASRBrain Singleton zosta³ zainicjalizowany.")
+            logger.info("ASRBrain Singleton został zainicjalizowany.")
         return asr_brain_instance
-
+        
 # ------------------- Application Configuration -------------------
 
 app = Flask(__name__)
