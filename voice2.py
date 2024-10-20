@@ -1288,7 +1288,7 @@ def generate_speech(text: str, profile: VoiceProfile, emotion: str = 'neutral', 
 
         # cie¿ka do zapisanego modelu
         model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
-        model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
+        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], model_filename)
                 
         if not os.path.exists(model_path):
             logger.error(f"Plik modelu ASR nie zosta³ znaleziony: {model_path}")
@@ -1334,61 +1334,35 @@ def save_transcription_result(transcription: str, save_path: str):
     except Exception as e:
         logger.error(f"Error saving transcription result: {e}")
 
-def fine_tune_asr(model, train_data, valid_data, user_id, language, app_config, profile_id,
+def fine_tune_asr(train_data, valid_data, user_id, language, app_config, profile_id,
                   num_epochs=10, batch_size=8, learning_rate=0.001):
     """
     Fine-tunes the Automatic Speech Recognition (ASR) model based on the user's voice input.
-
-    Parameters:
-    - model: The ASR model to be fine-tuned.
-    - train_data: Training dataset for fine-tuning.
-    - valid_data: Validation dataset for evaluation during fine-tuning.
-    - user_id: Identifier for the user whose data is used for fine-tuning.
-    - language: Language of the audio data.
-    - app_config: Application configuration object or dictionary.
-    - profile_id: Identifier for the user profile being fine-tuned.
-    - num_epochs: Number of epochs for training. Default is 10.
-    - batch_size: Batch size for training and validation. Default is 8.
-    - learning_rate: Learning rate for the optimizer. Default is 0.001.
-
-    Returns:
-    - str: A message confirming the completion of training.
-
-    Raises:
-    - ValueError: If training or validation data is missing.
-    - RuntimeError: If an error occurs during the training process.
     """
+    global asr_brain_instance
+
     try:
         logger.info(f"Starting fine-tuning for profile {profile_id} (User: {user_id}, Language: {language})")
 
         if not train_data or not valid_data:
             raise ValueError("No training or validation data.")
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        auto_mix_prec = torch.cuda.is_available()
-        scaler = GradScaler() if auto_mix_prec else None
+        if asr_brain_instance is None:
+            raise RuntimeError("ASR model is not initialized. Load the ASR model before fine-tuning.")
 
-        config = {
-            "lr": learning_rate,
-            "num_epochs": num_epochs,
-            "batch_size": batch_size,
-            "device": device,
-            "auto_mix_prec": auto_mix_prec,
-            "scaler": scaler
-        }
-        logger.info(f"Training configuration: {config}")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        scaler = GradScaler() if torch.cuda.is_available() else None
 
         # Update model with new hyperparameters
-        model.hparams.lr = config['lr']
-        model.hparams.device = config['device']
-        if config["scaler"]:
-            model.scaler = config["scaler"]
+        asr_brain_instance.hparams.lr = learning_rate
+        asr_brain_instance.hparams.device = device
+        asr_brain_instance.scaler = scaler if scaler else None
 
         # Setup optimizer
-        model.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+        asr_brain_instance.optimizer = torch.optim.AdamW(asr_brain_instance.modules['model'].parameters(), lr=learning_rate)
 
         # Move model to the appropriate device
-        for mod in model.modules.values():
+        for mod in asr_brain_instance.modules.values():
             mod.to(device)
 
         # Prepare data loader arguments
@@ -1401,7 +1375,7 @@ def fine_tune_asr(model, train_data, valid_data, user_id, language, app_config, 
         valid_loader_kwargs = train_loader_kwargs.copy()
 
         logger.info("Starting ASR model training...")
-        model.fit(
+        asr_brain_instance.fit(
             epoch_counter=range(1, num_epochs + 1),
             train_set=train_data,
             valid_set=valid_data,
@@ -1421,6 +1395,8 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
     """
     Trains the ASR model on a voice profile using provided audio files and transcriptions.
     """
+    global asr_brain_instance
+
     try:
         # Validate input data
         if not audio_files or not transcriptions:
@@ -1430,13 +1406,12 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
 
         logger.info(f"Starting ASR training for profile: {profile.name}")
 
-        # Initialize ASRBrain model
-        asr_brain = get_asr_brain()
-        if asr_brain is None:
-            raise RuntimeError("Failed to load ASR model.")
+        # Ensure the ASR model is loaded
+        if asr_brain_instance is None:
+            raise RuntimeError("ASR model is not initialized. Load the ASR model before training.")
 
         # Ustawienie current_profile_id w ASRBrain
-        asr_brain.current_profile_id = profile.id
+        asr_brain_instance.current_profile_id = profile.id
         logger.debug(f"Ustawiono 'current_profile_id' na: {profile.id}")
 
         # Preprocess audio files (without augmentation)
@@ -1471,7 +1446,7 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
 
         # Configure DataIO
         try:
-            train_dataset, valid_dataset = setup_dataio(asr_brain, voice_profiles)
+            train_dataset, valid_dataset = setup_dataio(asr_brain_instance, voice_profiles)
             if not train_dataset or not valid_dataset:
                 raise ValueError("Failed to configure DataIO.")
         except Exception as e:
@@ -1482,20 +1457,24 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
 
         # Configure device (GPU/CPU)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        asr_brain.hparams.device = device
-        for mod in asr_brain.modules.values():
+        asr_brain_instance.hparams.device = device
+        for mod in asr_brain_instance.modules.values():
             mod.to(device)
 
         # Initialize scaler for mixed precision, if enabled
         if torch.cuda.is_available():
-            if not hasattr(asr_brain, 'scaler') or asr_brain.scaler is None:
-                asr_brain.scaler = torch.cuda.amp.GradScaler()
+            if not hasattr(asr_brain_instance, 'scaler') or asr_brain_instance.scaler is None:
+                asr_brain_instance.scaler = torch.cuda.amp.GradScaler()
 
         logger.info(f"ASR model running on device: {device}")
 
-        # Trening modelu
+        # Ustawienie liczby epok w profilu na podstawie modelu
+        profile.epochs = asr_brain_instance.hparams.max_epochs = num_epochs
+        logger.info(f"Liczba epok dla profilu {profile.id} ustawiona na {num_epochs}")
+
+        # Train the model
         try:
-            asr_brain.fit(
+            asr_brain_instance.fit(
                 epoch_counter=range(1, num_epochs + 1),
                 train_set=train_dataset,
                 valid_set=valid_dataset,
@@ -1517,25 +1496,23 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
             logger.error(f"Error during ASR model training: {e}", exc_info=True)
             raise RuntimeError(f"Training failed: {str(e)}")
 
-
-        # Zapisanie modelu po treningu
-        with app.app_context():  # Zapewnij kontekst aplikacji przy operacjach na bazie danych
+        # Save the trained model
+        with app.app_context():
             try:
                 model_filename = f"CKPT+asr_model_profile_{profile.id}_{int(time.time())}.pt"
-                model_path = os.path.join(config['ASR_MODELS_FOLDER'], model_filename)
-                torch.save(model.state_dict(), model_path)
-                # Użycie Checkpointer do zapisu modelu
-                asr_brain.checkpointer.save_checkpoint(name=model_filename)  # Zapisz checkpoint z nazwą
+                model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
+                torch.save(asr_brain_instance.modules['model'].state_dict(), model_path)
+                asr_brain_instance.checkpointer.save_checkpoint(name=model_filename)  # Zapisz checkpoint
                 
                 logger.info(f"Trenowany model ASR zapisany jako {model_path}")
 
-                # Dodanie wpisu do bazy danych ASRModel
+                # Add entry to the database for ASRModel
                 asr_model_entry = ASRModel(
-                    user_id=profile.user_id,  # Poprawiono z VoiceProfile.user_id na profile.user_id
+                    user_id=profile.user_id,
                     voice_profile_id=profile.id,
                     name=f"ASR_Model_Profile_{profile.id}",
                     model_file=model_filename,
-                    language=profile.language  # Poprawiono z VoiceProfile.language na profile.language
+                    language=profile.language
                 )
                 db.session.add(asr_model_entry)
                 db.session.commit()
@@ -1551,6 +1528,7 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
         logger.error(f"Error during ASR training for profile {profile.name}: {e}", exc_info=True)
         raise RuntimeError(f"Training failed: {str(e)}")
 
+    
 def evaluate_audio_suitability(processing_info,
                                min_duration_sec=5.0,
                                max_duration_sec=400.0,
