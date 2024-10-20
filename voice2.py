@@ -1240,10 +1240,11 @@ def strip_silence(audio_segment, silence_thresh=-60.0, min_silence_len=500, keep
     except Exception as e:
         logger.error(f"Error stripping silence: {e}")
         raise
-
+    
 def process_audio(upload_path: str, processed_path: str,
-                 trim_silence: bool = True,
-                 augment: bool = False) -> str:
+                  trim_silence: bool = True,
+                  augment: bool = False,
+                  augment_options: dict = None) -> str:
     """
     Processes an audio file by stripping silence and optionally augmenting it.
 
@@ -1252,6 +1253,7 @@ def process_audio(upload_path: str, processed_path: str,
         processed_path (str): Path to save the processed audio file.
         trim_silence (bool, optional): Whether to strip silence. Defaults to True.
         augment (bool, optional): Whether to augment the audio. Defaults to True.
+        augment_options (dict, optional): Additional options for augmentation. Defaults to None.
 
     Returns:
         str: Path to the processed (and possibly augmented) audio file.
@@ -1266,16 +1268,19 @@ def process_audio(upload_path: str, processed_path: str,
 
         # Augment audio if enabled
         if augment:
-            augmented_path = augment_audio(upload_path, processed_path, augmentation_type="noise")
+            if augment_options is None:
+                augment_options = {"augmentation_type": "noise"}  # Domyślna opcja augmentacji
+
+            augmented_path = augment_audio(upload_path, processed_path, **augment_options)
             return augmented_path
         else:
             # Export the processed (silence-stripped) audio
             audio.export(processed_path, format="wav")
-            logger.info(f"Audio file processed and saved: {processed_path}")
+            logger.info(f"Plik audio przetworzony i zapisany: {processed_path}")
 
             return processed_path
     except Exception as e:
-        logger.error(f"Error processing audio file: {e}", exc_info=True)
+        logger.error(f"Błąd podczas przetwarzania pliku audio: {e}", exc_info=True)
         raise
 
 def generate_speech(text: str, profile: VoiceProfile, emotion: str = 'neutral', intonation: float = 1.0) -> str:
@@ -2243,7 +2248,7 @@ def profile():
         })
 
     return render_template('profile.html', profiles=profiles_with_training_status)
-
+    
 @app.route('/train_asr_model/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def train_asr_model_route(profile_id):
