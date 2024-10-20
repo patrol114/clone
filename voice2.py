@@ -1,4 +1,4 @@
-# app.py
+# voice2.py
 import warnings
 import random
 import numpy as np
@@ -1545,7 +1545,10 @@ def train_asr_on_voice_profile(profile, app_config, audio_files, transcriptions,
             try:
                 model_filename = f"asr_model_profile_{profile.id}_{int(time.time())}.pt"
                 model_path = os.path.join(app_config['ASR_MODELS_FOLDER'], model_filename)
-                sb.utils.checkpoints.save_checkpoint(asr_brain.checkpointer, asr_brain, savedir=app_config['ASR_MODELS_FOLDER'], name=model_filename)
+                
+                # Użyjemy Checkpointer do zapisu modelu
+                asr_brain.checkpointer.save_checkpoint()  # Zapisuje model
+                
                 logger.info(f"Trenowany model ASR zapisany jako {model_path}")
 
                 # Dodanie wpisu do bazy danych ASRModel
