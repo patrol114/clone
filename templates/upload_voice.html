@@ -4,11 +4,11 @@
 
 {% block content %}
 <div class="row justify-content-center mt-5">
-    <div class="col-md-6">
+    <div class="col-md-8">
         <h2 class="text-center mb-4">Prześlij Profil Głosu</h2>
-        <form method="POST" action="{{ url_for('upload_voice') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
+        <form id="upload-form" method="POST" action="{{ url_for('upload_voice') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
             <!-- Profile Name Field -->
-            <div class="mb-3">
+            <div class="mb-4">
                 <label for="name" class="form-label">Nazwa Profilu</label>
                 <input 
                     type="text" 
@@ -23,15 +23,28 @@
                 </div>
             </div>
 
+            <!-- Language Selection Field -->
+            <div class="mb-4">
+                <label for="language" class="form-label">Język</label>
+                <select class="form-select" id="language" name="language" required>
+                    <option value="" selected disabled>Wybierz język</option>
+                    <option value="pl">Polski</option>
+                    <!-- Dodaj inne języki według potrzeb -->
+                </select>
+                <div class="invalid-feedback">
+                    Proszę wybrać język.
+                </div>
+            </div>
+
             <!-- Audio File Selection Field -->
-            <div class="mb-3">
+            <div class="mb-4">
                 <label for="file" class="form-label">Wybierz Plik Audio</label>
                 <input 
                     type="file" 
                     class="form-control" 
                     id="file" 
                     name="file" 
-                    accept="audio/*" 
+                    accept=".wav, .mp3, .flac, .ogg" 
                     required
                 >
                 <div class="invalid-feedback">
@@ -40,12 +53,45 @@
                 <small class="form-text text-muted">Obsługiwane formaty: WAV, MP3, FLAC, OGG.</small>
             </div>
 
+            <!-- Augmentation Options -->
+            <div class="mb-4">
+                <label class="form-label">Opcje Augmentacji Audio</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="noise" id="augment_noise" name="augment_options">
+                    <label class="form-check-label" for="augment_noise">
+                        Dodaj szum tła
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="speed_pitch" id="augment_speed_pitch" name="augment_options">
+                    <label class="form-check-label" for="augment_speed_pitch">
+                        Zmień prędkość i wysokość tonu
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="reverb" id="augment_reverb" name="augment_options">
+                    <label class="form-check-label" for="augment_reverb">
+                        Dodaj pogłos
+                    </label>
+                </div>
+            </div>
+
             <!-- Audio File Preview -->
-            <div class="mb-3">
+            <div class="mb-4">
                 <label for="audio-preview" class="form-label">Podgląd Pliku Audio</label>
                 <audio id="audio-preview" controls style="display: none;" class="w-100 mt-2">
                     Twoja przeglądarka nie obsługuje elementu audio.
                 </audio>
+                <!-- Waveform Visualization -->
+                <canvas id="waveform" class="w-100 mt-2" style="display: none;"></canvas>
+            </div>
+
+            <!-- Upload Progress Bar -->
+            <div class="mb-4" style="display: none;" id="progress-container">
+                <label class="form-label">Postęp Przesyłania</label>
+                <div class="progress">
+                    <div id="upload-progress" class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
             </div>
 
             <!-- Submit Button -->
@@ -76,33 +122,144 @@
 </div>
 {% endif %}
 
+<!-- JavaScript Enhancements -->
 <script>
-// Audio file preview
+// Audio file preview and waveform visualization
 document.getElementById('file').addEventListener('change', function(event) {
     const file = event.target.files[0];
     const audioPreview = document.getElementById('audio-preview');
+    const waveformCanvas = document.getElementById('waveform');
+
     if (file) {
         const audioURL = URL.createObjectURL(file);
         audioPreview.src = audioURL;
         audioPreview.style.display = 'block';
+        waveformCanvas.style.display = 'block';
+        drawWaveform(audioURL, waveformCanvas);
     } else {
         audioPreview.style.display = 'none';
+        waveformCanvas.style.display = 'none';
     }
 });
 
-// Frontend form validation
+// Function to draw waveform using Canvas and Web Audio API
+function drawWaveform(audioURL, canvas) {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audio = new Audio();
+    audio.src = audioURL;
+    audio.crossOrigin = "anonymous";
+
+    audio.addEventListener('loadedmetadata', function() {
+        const source = audioCtx.createMediaElementSource(audio);
+        const analyser = audioCtx.createAnalyser();
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        analyser.fftSize = 2048;
+        const bufferLength = analyser.fftSize;
+        const dataArray = new Uint8Array(bufferLength);
+        const canvasCtx = canvas.getContext('2d');
+
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = 100;
+
+        function draw() {
+            requestAnimationFrame(draw);
+            analyser.getByteTimeDomainData(dataArray);
+
+            canvasCtx.fillStyle = '#f8f9fa';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+            canvasCtx.lineWidth = 2;
+            canvasCtx.strokeStyle = '#007bff';
+
+            canvasCtx.beginPath();
+
+            const sliceWidth = canvas.width * 1.0 / bufferLength;
+            let x = 0;
+
+            for(let i = 0; i < bufferLength; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = v * canvas.height / 2;
+
+                if(i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+
+                x += sliceWidth;
+            }
+
+            canvasCtx.lineTo(canvas.width, canvas.height / 2);
+            canvasCtx.stroke();
+        }
+
+        draw();
+    });
+}
+
+// Frontend form validation and AJAX submission with progress bar
 (function () {
     'use strict'
-    const forms = document.querySelectorAll('.needs-validation')
-    Array.prototype.slice.call(forms).forEach(function (form) {
-        form.addEventListener('submit', function (event) {
-            if (!form.checkValidity()) {
-                event.preventDefault()
-                event.stopPropagation()
+
+    const form = document.getElementById('upload-form');
+    const progressContainer = document.getElementById('progress-container');
+    const uploadProgress = document.getElementById('upload-progress');
+
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!form.checkValidity()) {
+            form.classList.add('was-validated');
+            return;
+        }
+
+        // Prepare form data
+        const formData = new FormData(form);
+
+        // Get selected augmentation options
+        const augmentOptions = Array.from(document.querySelectorAll('input[name="augment_options"]:checked'))
+            .map(input => input.value);
+        formData.set('augment_options', augmentOptions.join(',')); // Set as comma-separated string
+
+        // Show progress bar
+        progressContainer.style.display = 'block';
+        uploadProgress.style.width = '0%';
+        uploadProgress.setAttribute('aria-valuenow', '0');
+        uploadProgress.textContent = '0%';
+
+        // Perform AJAX request
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', form.action, true);
+
+        xhr.upload.onprogress = function (event) {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                uploadProgress.style.width = percentComplete + '%';
+                uploadProgress.setAttribute('aria-valuenow', percentComplete);
+                uploadProgress.textContent = percentComplete + '%';
             }
-            form.classList.add('was-validated')
-        }, false)
-    })
+        };
+
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                // Reload the page to show processing info
+                window.location.reload();
+            } else {
+                // Handle error
+                alert('Wystąpił błąd podczas przesyłania pliku.');
+                progressContainer.style.display = 'none';
+            }
+        };
+
+        xhr.onerror = function () {
+            alert('Wystąpił błąd podczas przesyłania pliku.');
+            progressContainer.style.display = 'none';
+        };
+
+        xhr.send(formData);
+    }, false)
 })()
 </script>
 
