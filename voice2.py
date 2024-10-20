@@ -2449,8 +2449,8 @@ def tts():
         try:
             intonation = float(request.form.get('intonation', 1.0))
         except ValueError:
-            intonation = 1.0  # Default value if conversion fails
-
+            intonation = 1.0  # Wartość domyślna, jeśli nie uda się skonwertować
+        
         if not text:
             flash("Nie podano tekstu do syntezy.", 'danger')
             return redirect(request.url)
@@ -2464,24 +2464,22 @@ def tts():
             flash("Profil głosowy nie został znaleziony.", 'danger')
             return redirect(request.url)
 
-        # Sprawdzenie, czy profil ma przypisany plik modelu
-        if not profile.model_filename:
+        # Sprawdzenie, czy asr_model istnieje
+        if not profile.asr_model or not profile.asr_model.model_file:
             flash("Nie znaleziono przypisanego modelu ASR do profilu głosowego.", 'danger')
             return redirect(request.url)
 
-        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], profile.model_filename)
+        model_path = os.path.join(app.config['ASR_MODELS_FOLDER'], profile.asr_model.model_file)
 
         if not os.path.exists(model_path):
-            logger.error(f"Błąd: Plik modelu ASR nie został znaleziony: {model_path}")
-            flash(f"Błąd: Plik modelu ASR nie został znaleziony.", 'danger')
+            flash(f"Błąd: Plik modelu ASR nie został znaleziony: {model_path}", 'danger')
             return redirect(request.url)
 
         try:
-            output_filename = generate_speech(text, profile, emotion, intonation, model_path)
+            output_filename = generate_speech(text, profile, emotion, intonation)
             flash("Mowa została wygenerowana i jest dostępna do pobrania.", 'success')
             return send_from_directory(app.config['GENERATED_FOLDER'], output_filename, as_attachment=True)
         except Exception as e:
-            logger.error(f"Błąd podczas generowania mowy: {e}")
             flash(f"Błąd podczas generowania mowy: {e}", 'danger')
             return redirect(request.url)
 
